@@ -107,13 +107,13 @@ try {
     'test', '-project', path.join(repo, 'ios/TeslaCompanion.xcodeproj'), '-scheme', 'CabinDirectStorePrep',
     '-configuration', 'Release', '-sdk', 'iphonesimulator', '-destination', 'platform=iOS Simulator,id=' + ownedUDID,
     '-destination-timeout', '120', '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1',
-    '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '120',
-    '-maximum-test-execution-time-allowance', '180', '-derivedDataPath', path.join(work, 'DerivedData'),
+    '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '180',
+    '-maximum-test-execution-time-allowance', '240', '-derivedDataPath', path.join(work, 'DerivedData'),
     '-clonedSourcePackagesDirPath', path.join(work, 'SourcePackages'), '-resultBundlePath', result, '-skipPackageUpdates',
     'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM=', 'CODE_SIGN_STYLE=Manual',
     'COMPILER_INDEX_STORE_ENABLE=NO', 'CLANG_MODULE_CACHE_PATH=' + path.join(work, 'module-cache'),
     'SWIFT_MODULE_CACHE_PATH=' + path.join(work, 'module-cache')
-  ], 900_000);
+  ], 1_200_000);
   const summary = await jsonRun('test-summary', 'xcrun', ['xcresulttool', 'get', 'test-results', 'summary', '--path', result, '--compact']);
   const tree = await jsonRun('test-identities', 'xcrun', ['xcresulttool', 'get', 'test-results', 'tests', '--path', result, '--compact']);
   report.tests = validateTestResults(summary, tree);

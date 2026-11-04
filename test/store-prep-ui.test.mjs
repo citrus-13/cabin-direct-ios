@@ -88,10 +88,12 @@ test('XCUITest contract is three genuine navigation checks and eight retained re
   assert.deepEqual([...ui.matchAll(/func (test\w+)\(/g)].map(match => match[1]), [
     'testLightNavigationAndPrivacy', 'testVisibleTextRegionControls', 'testDarkAndAccessibilityNavigation'
   ]);
-  assert.deepEqual([...ui.matchAll(/attach\("([a-z-]+)"/g)].map(match => match[1]), [
+  const screenshots = [...ui.matchAll(/attach\("([a-z-]+)"/g)].map(match => match[1]);
+  assert.equal(screenshots.length, 8);
+  assert.deepEqual(screenshots.toSorted(), [
     'connect-light', 'share-light', 'privacy-light', 'support-light', 'visible-text-controls-light',
     'help-dark', 'privacy-accessibility', 'support-accessibility'
-  ]);
+  ].toSorted());
   assert.match(ui, /XCTAttachment\(screenshot: app\.screenshot\(\)\)/);
   assert.match(ui, /attachment\.lifetime = \.keepAlways/);
   assert.match(ui, /XCUIDevice\.shared\.appearance = appearance/);
@@ -110,4 +112,22 @@ test('XCUITest contract is three genuine navigation checks and eight retained re
   assert.deepEqual([...args.matchAll(/"(-[A-Za-z]+)"/g)].map(match => match[1]), [
     '-AppleLanguages', '-AppleLocale', '-AppleInterfaceStyle', '-UIPreferredContentSizeCategoryName'
   ]);
+});
+
+test('dark accessibility flow verifies and captures Support once before Help/Privacy/Share', () => {
+  const dark = ui.split('func testDarkAndAccessibilityNavigation()')[1].split('private func launch(')[0];
+  assert.equal((dark.match(/tap\("help\.support", in: app\)/g) || []).length, 1);
+  const order = ['selectDarkAppearance(in: app)', 'XCTAssertEqual(appearance.value as? String, "深色"',
+    'XCTAssertEqual(textSize.value as? String, "辅助功能字号"', 'attach("support-accessibility"',
+    'attach("help-dark"', 'attach("privacy-accessibility"', 'tapTab("tab.share"'];
+  const positions = order.map(value => dark.indexOf(value));
+  assert.ok(positions.every(position => position >= 0));
+  assert.deepEqual(positions, positions.toSorted((left, right) => left - right));
+  assert.match(dark, /XCTAssertTrue\(app\.switches\["setting\.visible-text"\]\.isHittable/);
+  const checkpoints = [...dark.matchAll(/print\("([^"\n]*)"\)/g)].map(match => match[1]);
+  assert.deepEqual(checkpoints, ['[STORE-PREP TEST] dark-launched', '[STORE-PREP TEST] dark-support-opened',
+    '[STORE-PREP TEST] dark-support-selected', '[STORE-PREP TEST] dark-environment-verified',
+    '[STORE-PREP TEST] dark-support-attached', '[STORE-PREP TEST] dark-help-attached',
+    '[STORE-PREP TEST] dark-privacy-attached', '[STORE-PREP TEST] dark-share-controls-verified']);
+  assert.ok(checkpoints.every(value => !value.includes('\\(')), 'Checkpoints contain authored static text only');
 });

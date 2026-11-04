@@ -68,27 +68,17 @@ final class CabinDirectUITests: XCTestCase {
         let originalAppearance = XCUIDevice.shared.appearance
         let app = launch(appearance: .dark, accessibilityText: true)
         defer { app.terminate(); XCUIDevice.shared.appearance = originalAppearance }
+        print("[STORE-PREP TEST] dark-launched")
 
         XCTAssertTrue(element("connect.headline", in: app).waitForExistence(timeout: 5))
-        tapTab("tab.share", label: "共享", in: app)
-        reveal(app.switches["setting.visible-text"], identifier: "setting.visible-text", in: app)
-        XCTAssertTrue(app.switches["setting.visible-text"].isHittable)
-
         tapTab("tab.help", label: "帮助", in: app)
         // Use the actual public, session-only appearance control. System device
         // appearance alone did not propagate into this app on the previous run.
         tap("help.support", in: app)
-        selectDarkAppearance(in: app)
-        back(in: app)
-        reveal(element("help.privacy", in: app), identifier: "help.privacy", in: app)
-        attach("help-dark", from: app)
-        tap("help.privacy", in: app)
-        XCTAssertTrue(element("privacy.heading", in: app).waitForExistence(timeout: 5))
-        attach("privacy-accessibility", from: app)
-
-        back(in: app)
-        tap("help.support", in: app)
+        print("[STORE-PREP TEST] dark-support-opened")
         XCTAssertTrue(element("about.version", in: app).waitForExistence(timeout: 5))
+        selectDarkAppearance(in: app)
+        print("[STORE-PREP TEST] dark-support-selected")
         let appearance = element("about.appearance", in: app)
         reveal(appearance, identifier: "about.appearance", in: app, requiresHittable: false)
         XCTAssertEqual(appearance.value as? String, "深色",
@@ -97,7 +87,25 @@ final class CabinDirectUITests: XCTestCase {
         reveal(textSize, identifier: "about.text-size", in: app, requiresHittable: false)
         XCTAssertEqual(textSize.value as? String, "辅助功能字号",
                        "Actual SwiftUI Dynamic Type must be accessibility-sized; \(details(textSize, identifier: "about.text-size"))")
+        print("[STORE-PREP TEST] dark-environment-verified")
         attach("support-accessibility", from: app)
+        print("[STORE-PREP TEST] dark-support-attached")
+
+        back(in: app)
+        reveal(element("help.privacy", in: app), identifier: "help.privacy", in: app)
+        attach("help-dark", from: app)
+        print("[STORE-PREP TEST] dark-help-attached")
+        tap("help.privacy", in: app)
+        XCTAssertTrue(element("privacy.heading", in: app).waitForExistence(timeout: 5))
+        attach("privacy-accessibility", from: app)
+        print("[STORE-PREP TEST] dark-privacy-attached")
+
+        back(in: app)
+        tapTab("tab.share", label: "共享", in: app)
+        reveal(app.switches["setting.visible-text"], identifier: "setting.visible-text", in: app)
+        XCTAssertTrue(app.switches["setting.visible-text"].isHittable,
+                      details(app.switches["setting.visible-text"], identifier: "setting.visible-text"))
+        print("[STORE-PREP TEST] dark-share-controls-verified")
     }
 
     @MainActor

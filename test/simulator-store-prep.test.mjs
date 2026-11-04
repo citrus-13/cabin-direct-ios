@@ -22,6 +22,9 @@ test('simulator command uses default single execution, not invalid one-iteration
   const source = fs.readFileSync(path.join(repo,'scripts/check-simulator-store-prep.mjs'),'utf8');
   assert.doesNotMatch(source, /'-test-iterations'/);
   assert.match(source, /'-test-timeouts-enabled', 'YES'/);
+  assert.match(source, /'-default-test-execution-time-allowance', '180'/);
+  assert.match(source, /'-maximum-test-execution-time-allowance', '240'/);
+  assert.match(source, /\], 1_200_000\)/);
 });
 function inventory() {
   return { runtimes: [{ identifier: runtime, version: '27.0', isAvailable: true,
