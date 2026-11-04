@@ -64,6 +64,26 @@ test('store-prep UI target/scheme is separate and leaves the shipping version an
   assert.equal((shipping.match(/MARKETING_VERSION: "0\.4\.0"/g) || []).length, 2);
 });
 
+test('public session-only appearance setting drives the app while diagnostics still read actual environments', () => {
+  assert.match(app, /@State private var appearanceChoice: DirectAppearanceChoice = \.system/);
+  assert.match(app, /\.preferredColorScheme\(appearanceChoice\.colorScheme\)/);
+  assert.match(app, /DirectSupportAboutView\(appearanceChoice: \$appearanceChoice\)/);
+  assert.match(app, /Picker\("App 外观", selection: \$appearanceChoice\)/);
+  assert.match(app, /\.pickerStyle\(\.segmented\)/);
+  assert.match(app, /只在本次 App 运行期间生效，不保存/);
+  assert.doesNotMatch(app, /@AppStorage|UserDefaults|appearanceChoice.*forKey/);
+  assert.ok(app.indexOf('private enum DirectAppearanceChoice') > app.indexOf('struct DirectSetupView: View'),
+    'SwiftUI-dependent enum remains outside the exact production-model extraction');
+  assert.match(ui, /selectDarkAppearance\(in: app\)/);
+  assert.match(ui, /app\.segmentedControls\.buttons\["深色"\]/);
+  assert.match(ui, /waitForValue\("深色", on: appearance, timeout: 5\)/);
+  assert.match(ui, /setOn\(visibleText, identifier: "setting\.visible-text", in: app\)/);
+  assert.match(ui, /XCTAssertEqual\(switchValue\(visibleText\), "1"/);
+  assert.match(ui, /if waitForValue\("1", on: control, timeout: 2\) \{ return \}/);
+  assert.match(ui, /control\.coordinate\(withNormalizedOffset: CGVector\(dx: 0\.93, dy: 0\.5\)\)\.tap\(\)/);
+  assert.match(ui, /String\(describing: control\.value \?\? ""\)/);
+});
+
 test('XCUITest contract is three genuine navigation checks and eight retained real-UI screenshots', () => {
   assert.deepEqual([...ui.matchAll(/func (test\w+)\(/g)].map(match => match[1]), [
     'testLightNavigationAndPrivacy', 'testVisibleTextRegionControls', 'testDarkAndAccessibilityNavigation'

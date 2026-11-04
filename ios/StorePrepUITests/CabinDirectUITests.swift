@@ -42,8 +42,12 @@ final class CabinDirectUITests: XCTestCase {
         tapTab("tab.share", label: "共享", in: app)
         let visibleText = app.switches["setting.visible-text"]
         XCTAssertTrue(visibleText.waitForExistence(timeout: 5))
-        if visibleText.value as? String != "1" { visibleText.tap() }
-        let preview = element("setting.region.preview", in: app)
+        setOn(visibleText, identifier: "setting.visible-text", in: app)
+        XCTAssertEqual(switchValue(visibleText), "1",
+                       "The real opt-in must be on before looking for ROI; \(details(visibleText, identifier: "setting.visible-text"))")
+        let identifiedPreview = element("setting.region.preview", in: app)
+        let preview = identifiedPreview.waitForExistence(timeout: 3) ? identifiedPreview
+            : app.images.matching(NSPredicate(format: "label == %@", "文字识别区域示意图，非实际屏幕预览")).firstMatch
         // This is an explanatory image, not a tappable control. Verify its visible
         // frame; reserve hit-point assertions for the genuine adjustable sliders.
         reveal(preview, identifier: "setting.region.preview", in: app, requiresHittable: false)
@@ -71,6 +75,11 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(app.switches["setting.visible-text"].isHittable)
 
         tapTab("tab.help", label: "帮助", in: app)
+        // Use the actual public, session-only appearance control. System device
+        // appearance alone did not propagate into this app on the previous run.
+        tap("help.support", in: app)
+        selectDarkAppearance(in: app)
+        back(in: app)
         reveal(element("help.privacy", in: app), identifier: "help.privacy", in: app)
         attach("help-dark", from: app)
         tap("help.privacy", in: app)
@@ -103,8 +112,56 @@ final class CabinDirectUITests: XCTestCase {
                                accessibilityText ? "UICTContentSizeCategoryAccessibilityXXXL" : "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
-        XCTAssertEqual(XCUIDevice.shared.appearance, appearance, "System appearance request did not take effect")
+        // System appearance is not evidence of the app's actual colorScheme;
+        // the dark test verifies that separately after using its visible setting.
         return app
+    }
+
+    @MainActor
+    private func selectDarkAppearance(in app: XCUIApplication) {
+        let identified = app.buttons["setting.appearance.dark"]
+        let dark = identified.exists ? identified : app.segmentedControls.buttons["深色"]
+        reveal(dark, identifier: "setting.appearance.dark", in: app)
+        XCTAssertTrue(dark.isEnabled, details(dark, identifier: "setting.appearance.dark"))
+        dark.tap()
+        let appearance = element("about.appearance", in: app)
+        reveal(appearance, identifier: "about.appearance", in: app, requiresHittable: false)
+        XCTAssertTrue(waitForValue("深色", on: appearance, timeout: 5),
+                      "Public appearance choice must change actual colorScheme; \(details(appearance, identifier: "about.appearance"))")
+    }
+
+    @MainActor
+    private func setOn(_ control: XCUIElement, identifier: String, in app: XCUIApplication) {
+        reveal(control, identifier: identifier, in: app)
+        XCTAssertTrue(control.isEnabled, "Opt-in must be enabled; \(details(control, identifier: identifier))")
+        if switchValue(control) == "1" { return }
+        let before = details(control, identifier: identifier)
+        control.tap()
+        if waitForValue("1", on: control, timeout: 2) { return }
+        if switchValue(control) == "1" { return } // Do not reverse a just-completed delayed toggle.
+        // SwiftUI can expose a Toggle's whole labeled row as the switch frame;
+        // one ordinary tap at its right-hand switch, not another label-center tap.
+        XCTAssertTrue(control.isEnabled && control.isHittable,
+                      "Opt-in changed availability after tap; before=\(before); after=\(details(control, identifier: identifier))")
+        control.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertTrue(waitForValue("1", on: control, timeout: 3),
+                      "User opt-in did not turn on; before=\(before); after=\(details(control, identifier: identifier))")
+    }
+
+    @MainActor
+    private func waitForValue(_ expected: String, on target: XCUIElement, timeout: TimeInterval) -> Bool {
+        let predicate = NSPredicate { object, _ in
+            guard let element = object as? XCUIElement else { return false }
+            return String(describing: element.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == expected
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: target)
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    @MainActor
+    private func switchValue(_ control: XCUIElement) -> String {
+        // Read the actual AX value consistently whether XCTest bridges NSString or NSNumber.
+        String(describing: control.value ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     @MainActor
@@ -179,10 +236,10 @@ final class CabinDirectUITests: XCTestCase {
         // status, addresses, clipboard, pairing credentials or private screenshots.
         let allowed = ["setting.region.preview", "setting.region.x", "setting.region.y", "setting.region.width",
                        "setting.region.height", "setting.visible-text", "help.privacy", "help.support",
-                       "about.appearance", "about.text-size"]
+                       "about.appearance", "about.text-size", "setting.appearance.dark"]
         guard allowed.contains(identifier), target.exists else { return "control=\(identifier), exists=\(target.exists)" }
         let label = String(target.label.prefix(120)), value = String(describing: target.value ?? "").prefix(120)
-        return "control=\(identifier), type=\(target.elementType.rawValue), label=\(label), value=\(value), frame=\(target.frame), hittable=\(target.isHittable)"
+        return "control=\(identifier), type=\(target.elementType.rawValue), label=\(label), value=\(value), frame=\(target.frame), enabled=\(target.isEnabled), hittable=\(target.isHittable)"
     }
 
     @MainActor

@@ -105,6 +105,7 @@ struct DirectSetupView: View {
     @State private var acknowledged = false
     @State private var copied = ""
     @State private var confirmPendingRecovery = false
+    @State private var appearanceChoice: DirectAppearanceChoice = .system
     @ScaledMetric(relativeTo: .body) private var regionPreviewHeight: CGFloat = 170
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -136,6 +137,7 @@ struct DirectSetupView: View {
                 .tabItem { Label("帮助", systemImage: "questionmark.circle").accessibilityIdentifier("tab.help") }
         }
         .tint(.teal)
+        .preferredColorScheme(appearanceChoice.colorScheme)
         .onReceive(timer) { _ in
             model.refresh()
             if model.active, demo.running { demo.stop(reason: "检测到真实系统广播，原创演示已停止。") }
@@ -338,7 +340,7 @@ struct DirectSetupView: View {
                 NavigationLink { DirectPrivacyStatementView() } label: {
                     Label("隐私声明（草稿）", systemImage: "hand.raised")
                 }.accessibilityIdentifier("help.privacy")
-                NavigationLink { DirectSupportAboutView() } label: {
+                NavigationLink { DirectSupportAboutView(appearanceChoice: $appearanceChoice) } label: {
                     Label("支持与关于", systemImage: "info.circle")
                 }.accessibilityIdentifier("help.support")
             }
@@ -430,6 +432,25 @@ struct DirectSetupView: View {
     }
 }
 
+private enum DirectAppearanceChoice: String, CaseIterable, Identifiable {
+    case system, light, dark
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: return "跟随系统"
+        case .light: return "浅色"
+        case .dark: return "深色"
+        }
+    }
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark: return .dark
+        }
+    }
+}
+
 private struct DirectPrivacyStatementView: View {
     private let sourceURL = URL(string: "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/PRIVACY.md")!
 
@@ -474,6 +495,7 @@ private struct DirectPrivacyStatementView: View {
 }
 
 private struct DirectSupportAboutView: View {
+    @Binding var appearanceChoice: DirectAppearanceChoice
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     private let sourceURL = URL(string: "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/SUPPORT.md")!
@@ -498,6 +520,17 @@ private struct DirectSupportAboutView: View {
                     .foregroundStyle(.secondary)
             }
             Section("当前显示设置") {
+                Picker("App 外观", selection: $appearanceChoice) {
+                    ForEach(DirectAppearanceChoice.allCases) { choice in
+                        Text(choice.title).tag(choice)
+                            .accessibilityIdentifier("setting.appearance.\(choice.rawValue)")
+                    }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("setting.appearance")
+                .accessibilityHint("只在本次 App 运行期间生效，不保存，也不修改系统外观")
+                Text("外观选择仅对本次 App 运行生效；下次重新启动恢复跟随系统。不保存偏好，不更改系统设置。文字大小始终跟随系统。")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Text("当前外观：\(appearanceName)")
                     .accessibilityLabel("当前外观")
                     .accessibilityValue(appearanceName)
@@ -506,7 +539,7 @@ private struct DirectSupportAboutView: View {
                     .accessibilityLabel("当前文字大小")
                     .accessibilityValue(textSizeName)
                     .accessibilityIdentifier("about.text-size")
-                Text("文字与布局跟随系统设置。本页不收集或上传显示设置，也不证明已完成全部无障碍审核。")
+                Text("上方状态反映当前实际显示环境。本页不收集或上传显示设置，也不证明已完成全部无障碍审核。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("支持说明") {

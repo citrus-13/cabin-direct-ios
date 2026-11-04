@@ -4,6 +4,18 @@
 
 Review source, licenses/icon, unsigned compilation, privacy/support navigation, field-limited Chinese metadata, English review procedure, disclosure worksheets and actual simulator tests/screenshots if CI proves them. Keep commit-pinned evidence and pending gates separate.
 
+### Accept a simulator evidence draft
+
+Before publishing a store-preparation GitHub draft, independently verify:
+
+1. The actual workflow succeeded in this public repository at the intended source commit; the new `store-prep-<runID>` tag resolves to that commit. Do not change an existing preview release.
+2. Download exactly the simulator-evidence ZIP, `simulator-report.json` and `SHA256SUMS.txt`. Compare all three hashes against GitHub asset digests or the CI staging receipt, then verify both checksum-file entries. A checksum file alone is not independent provenance.
+3. Inspect the ZIP before extraction: exactly eight named PNGs and the report, all root-level regular files, with no duplicates, paths or symlinks. Its report must be byte-identical to the separate report.
+4. Revalidate the exact report schema, commit/run, three passing UI tests without skips, owned-simulator cleanup, eight image hashes, accepted native portrait dimensions and decoded no-alpha PNGs. The report must retain simulator-only status and false physical-phone, capture, vehicle, personal/distribution-signing and App Store approval fields.
+5. Visually review all eight actual screenshots for the intended state, readability, clipping/overlap, dark mode and accessibility text. Reject credentials, personal data, unrelated content or misleading capture/connection claims. XCTest and valid image bytes do not replace this review.
+
+These are developer evidence, not automatically selected App Store screenshots or proof of real-phone/vehicle operation. The in-app appearance choice is user-visible, affects only the current app run and does not establish a complete accessibility audit.
+
 ## Publisher decisions, no device needed
 
 Confirm the public publisher name and authorized contact; never substitute an unrelated private email. Finalize working support/contact and privacy URLs. Decide name/content rights, price/territories, category/age/export/accessibility/trader answers. Later, separately decide distribution membership/agreements. This task buys/accepts nothing and creates no App Store Connect record.

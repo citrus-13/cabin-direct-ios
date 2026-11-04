@@ -155,7 +155,7 @@ try {
           skipped:summary.skippedTests,expected_failures:Number.isSafeInteger(summary.expectedFailures) ? summary.expectedFailures : null};
       }
       const failures = Array.isArray(summary.testFailures) ? summary.testFailures.slice(0,8).map(item => ({
-        test: String(item.testIdentifier || item.testName || 'unknown').slice(0,160),
+        test: String(item.testName || item.testIdentifier || 'unknown').slice(0,160),
         message: String(item.message || item.failureText || 'See bounded Xcode diagnostics').slice(0,800)
       })) : [];
       console.log('[failed simulator observations] '+redact(JSON.stringify({passed:false,tests:report.tests,failures})));
