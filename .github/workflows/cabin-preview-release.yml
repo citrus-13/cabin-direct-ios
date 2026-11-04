@@ -1,0 +1,90 @@
+name: Cabin Direct unsigned developer preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: New preview tag (never overwritten)
+        required: true
+        default: v0.4.0-preview.1
+
+# The ordinary compile workflow remains read-only. This manual owner/default-branch
+# workflow has only the repository permission required for the explicitly authorized release.
+permissions:
+  contents: read
+
+concurrency:
+  group: cabin-preview-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  unsigned_preview:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository_owner == 'citrus-13' && github.ref == 'refs/heads/codex/public-build' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_UPGRADE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+      CABIN_IOS_CONFIGURATION: Release
+      CABIN_PREVIEW_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Checkout exact source without saved credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Select Node 22 without persistent cache
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Validate tag and prepare ephemeral task paths
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; import {validatePreviewTag} from "./lib/preview-package.mjs"; validatePreviewTag(process.env.CABIN_PREVIEW_TAG,JSON.parse(fs.readFileSync("package.json","utf8")).version);'
+          if [[ "$RUNNER_TEMP" != /* || "$RUNNER_TEMP" == *$'\n'* || "$RUNNER_TEMP" == *$'\r'* ]]; then exit 1; fi
+          mkdir -p "$RUNNER_TEMP/cabin-preview-tmp" "$RUNNER_TEMP/cabin-preview-tests"
+          printf '%s\n' \
+            "TMPDIR=$RUNNER_TEMP/cabin-preview-tmp" \
+            "CABIN_IOS_WORK_DIR=$RUNNER_TEMP/cabin-preview-build" \
+            "CABIN_IOS_TEST_WORK_DIR=$RUNNER_TEMP/cabin-preview-tests" \
+            "CABIN_PREVIEW_OUT_DIR=$RUNNER_TEMP/cabin-preview-out" \
+            "CABIN_PREVIEW_TEST_LOG=$RUNNER_TEMP/cabin-preview-tests.tap" \
+            "npm_config_cache=$RUNNER_TEMP/cabin-preview-npm" >> "$GITHUB_ENV"
+      - name: Prepare free toolchain and locked dependencies
+        run: |
+          if ! brew list --versions xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          command -v gh
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+      - name: Actual unsigned Release compilation and packaged privacy checks
+        run: node scripts/build-ios.mjs
+      - name: Complete source and packaging tests without skips
+        run: node --test 2>&1 | tee "$CABIN_PREVIEW_TEST_LOG"
+      - name: Audit and package unsigned candidate with checksums
+        run: node scripts/package-preview.mjs
+      - name: Publish verified draft assets as a non-latest prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/publish-preview.mjs
+      - name: Bounded compiler failure diagnostics
+        if: ${{ failure() }}
+        run: |
+          node --input-type=module <<'DIAGNOSTICS'
+          import fs from 'node:fs';
+          const file = process.env.CABIN_IOS_WORK_DIR + '/logs/unsigned-generic-ios-build.log';
+          const redact = text => text
+            .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/g, '[REDACTED KEY]')
+            .replace(/(?:gh[pousr]_[a-zA-Z0-9_]+|github_pat_[a-zA-Z0-9_]+)/g, '[REDACTED TOKEN]')
+            .replace(/(authorization|cookie|password|passwd|token|secret|credential|pairing[ _-]?code)\s*[:=]\s*[^\r\n]+/gi, '$1=[REDACTED]')
+            .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/g, 'https://[REDACTED]@')
+            .replace(/\/(?:Users|home)\/[^\s:]+/g, '[REDACTED PATH]');
+          if (fs.existsSync(file)) console.log(redact(fs.readFileSync(file,'utf8')).split('\n').filter(line => /\berror:|fatal error:|BUILD FAILED/i.test(line)).slice(0,40).map(line => line.slice(0,1000)).join('\n'));
+          DIAGNOSTICS

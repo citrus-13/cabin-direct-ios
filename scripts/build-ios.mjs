@@ -9,6 +9,8 @@ const args = process.argv.slice(2);
 if (args.some(arg => arg !== '--preflight-only')) throw new Error('Usage: node scripts/build-ios.mjs [--preflight-only]');
 const preflightOnly = args.includes('--preflight-only');
 const simulated = process.env.CABIN_IOS_EVIDENCE_KIND === 'simulated';
+const configuration = process.env.CABIN_IOS_CONFIGURATION || 'Debug';
+if (!['Debug', 'Release'].includes(configuration)) throw new Error('CABIN_IOS_CONFIGURATION must be Debug or Release.');
 if (process.platform !== 'darwin') throw new Error('This runner requires macOS.');
 const requested = process.env.CABIN_IOS_WORK_DIR;
 if (!requested || !path.isAbsolute(requested)) throw new Error('Set an explicit absolute external CABIN_IOS_WORK_DIR.');
@@ -27,10 +29,15 @@ const env = { ...process.env, TMPDIR: path.join(work, 'tmp'),
   CLANG_MODULE_CACHE_PATH: path.join(work, 'module-cache'),
   SWIFT_MODULE_CACHE_PATH: path.join(work, 'module-cache'),
   SWIFTPM_MODULECACHE_OVERRIDE: path.join(work, 'module-cache') };
+const revision = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' });
+const dirt = spawnSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' });
 const report = {
   schema_version: 1, evidence_kind: simulated ? 'simulated' : 'actual', preflight_only: preflightOnly,
   state: 'starting', passed: false, project_generated: false, project_validated: false,
   build_profile: 'screen-companion-v1', v1_profile_validated: false,
+  configuration,
+  source_commit: revision.status === 0 && /^[a-f0-9]{40}$/.test(revision.stdout.trim()) ? revision.stdout.trim() : null,
+  source_dirty: dirt.status !== 0 || dirt.stdout.trim().length > 0,
   full_xcode_available: false, iphoneos_sdk_available: false, full_iOS_build: false,
   build_command_succeeded: false, unsigned_product_present: false,
   packaged_privacy_manifests_verified: false,
@@ -181,14 +188,14 @@ if (!execute('generate-project', 'xcodegen', ['--spec', 'ios/project.yml', '--pr
       const resultBundle = path.join(work, 'results', `CabinDirect-${Date.now()}-${process.pid}.xcresult`);
       report.artifacts.result_bundle = resultBundle; save();
       const build = execute('unsigned-generic-ios-build', 'xcodebuild', ['-project', project, '-scheme', 'CabinDirect',
-        '-configuration', 'Debug', '-destination', 'generic/platform=iOS', '-sdk', 'iphoneos',
+        '-configuration', configuration, '-destination', 'generic/platform=iOS', '-sdk', 'iphoneos',
         '-derivedDataPath', path.join(work, 'DerivedData'), '-clonedSourcePackagesDirPath', path.join(work, 'SourcePackages'),
         '-resultBundlePath', resultBundle, '-skipPackageUpdates',
         'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=', 'DEVELOPMENT_TEAM=', 'CODE_SIGN_STYLE=Manual',
         `CLANG_MODULE_CACHE_PATH=${path.join(work, 'module-cache')}`, `SWIFT_MODULE_CACHE_PATH=${path.join(work, 'module-cache')}`,
         'COMPILER_INDEX_STORE_ENABLE=NO', 'build'], 600_000);
       report.build_command_succeeded = build.ok;
-      const app = path.join(work, 'DerivedData/Build/Products/Debug-iphoneos/CabinDirect.app');
+      const app = path.join(work, `DerivedData/Build/Products/${configuration}-iphoneos/CabinDirect.app`);
       const extension = path.join(app, 'PlugIns/DirectBroadcastExtension.appex');
       report.unsigned_product_present = [path.join(app, 'CabinDirect'), path.join(app, 'Info.plist'),
         path.join(extension, 'DirectBroadcastExtension'), path.join(extension, 'Info.plist')].every(existsSync);

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +48,8 @@ else if(tool==='xcrun') {
 } else if(tool==='xcodebuild') {
   if(process.env.FIXTURE_BUILD_MODE==='fail') { console.error('Simulated compiler failure'); process.exit(65); }
   if(process.env.FIXTURE_BUILD_MODE!=='missing-product') {
-    const app=path.join(args[args.indexOf('-derivedDataPath')+1],'Build/Products/Debug-iphoneos/CabinDirect.app');
+    const configuration=args[args.indexOf('-configuration')+1];
+    const app=path.join(args[args.indexOf('-derivedDataPath')+1],'Build/Products/'+configuration+'-iphoneos/CabinDirect.app');
     for(const name of ['CabinDirect','Info.plist','PlugIns/DirectBroadcastExtension.appex/DirectBroadcastExtension','PlugIns/DirectBroadcastExtension.appex/Info.plist']) put(path.join(app,name),'SIMULATED NOT AN IOS BINARY');
     put(path.join(app,'PrivacyInfo.xcprivacy'),process.env.FIXTURE_BAD_PACKAGED_PRIVACY ? '{}' : fs.readFileSync(path.join(root,'ios/PrivacyInfo.xcprivacy'),'utf8'));
     put(path.join(app,'PlugIns/DirectBroadcastExtension.appex/PrivacyInfo.xcprivacy'),fs.readFileSync(path.join(root,'ios/Privacy/Broadcast/PrivacyInfo.xcprivacy'),'utf8'));
@@ -59,7 +60,7 @@ else if(tool==='xcrun') {
 function fixture(extra = {}) {
   const base = process.env.CABIN_IOS_TEST_WORK_DIR || os.tmpdir();
   mkdirSync(base, { recursive: true });
-  const root = mkdtempSync(path.join(base, 'cabin-ios-simulated-'));
+  const root = realpathSync(mkdtempSync(path.join(base, 'cabin-ios-simulated-')));
   const repo = path.join(root, 'repo'), work = path.join(root, 'work'), bin = path.join(root, 'bin');
   mkdirSync(path.join(repo, 'scripts'), { recursive: true }); mkdirSync(bin);
   copyFileSync(productionScript, path.join(repo, 'scripts/build-ios.mjs'));
@@ -184,4 +185,21 @@ test('[SIMULATED] compiler success with invalid packaged privacy never counts as
   assert.equal(result.report.unsigned_product_present, true);
   assert.equal(result.report.packaged_privacy_manifests_verified, false);
   assert.equal(result.report.full_iOS_build, false);
+});
+
+test('[SIMULATED] explicit Release configuration remains unsigned and validates Release products', () => {
+  const result = fixture({ CABIN_IOS_CONFIGURATION: 'Release' }).run();
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.report.configuration, 'Release');
+  assert.equal(result.report.full_iOS_build, false);
+  const args = result.calls.find(call => call.tool === 'xcodebuild').args;
+  assert.equal(args[args.indexOf('-configuration') + 1], 'Release');
+  assert.match(result.report.artifacts.unsigned_app, /Release-iphoneos/);
+});
+
+test('[SIMULATED] unknown build configuration is rejected before any build tool', () => {
+  const result = fixture({ CABIN_IOS_CONFIGURATION: 'Release;anything' }).run();
+  assert.equal(result.status, 1);
+  assert.equal(result.calls.length, 0);
+  assert.equal(result.report, null);
 });
