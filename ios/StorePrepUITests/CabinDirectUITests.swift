@@ -44,13 +44,16 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(visibleText.waitForExistence(timeout: 5))
         if visibleText.value as? String != "1" { visibleText.tap() }
         let preview = element("setting.region.preview", in: app)
-        reveal(preview, in: app)
-        XCTAssertTrue(preview.exists, "Opt-in shows the actual native ROI controls")
+        // This is an explanatory image, not a tappable control. Verify its visible
+        // frame; reserve hit-point assertions for the genuine adjustable sliders.
+        reveal(preview, identifier: "setting.region.preview", in: app, requiresHittable: false)
+        XCTAssertTrue(isVisible(preview, in: app), details(preview, identifier: "setting.region.preview"))
         for identifier in ["setting.region.x", "setting.region.y", "setting.region.width", "setting.region.height"] {
             let slider = app.sliders[identifier]
-            reveal(slider, in: app)
-            XCTAssertTrue(slider.isHittable, "ROI slider must remain operable: \(identifier)")
-            XCTAssertFalse((slider.value as? String ?? "").isEmpty, "Slider exposes its current percentage")
+            reveal(slider, identifier: identifier, in: app)
+            XCTAssertTrue(slider.isHittable, "ROI slider must remain operable; \(details(slider, identifier: identifier))")
+            XCTAssertFalse((slider.value as? String ?? "").isEmpty,
+                           "Slider must expose its actual percentage; \(details(slider, identifier: identifier))")
         }
         attach("visible-text-controls-light", from: app)
         // Do not save, acknowledge capture, touch the system picker, or start the demo.
@@ -64,11 +67,11 @@ final class CabinDirectUITests: XCTestCase {
 
         XCTAssertTrue(element("connect.headline", in: app).waitForExistence(timeout: 5))
         tapTab("tab.share", label: "共享", in: app)
-        reveal(app.switches["setting.visible-text"], in: app)
+        reveal(app.switches["setting.visible-text"], identifier: "setting.visible-text", in: app)
         XCTAssertTrue(app.switches["setting.visible-text"].isHittable)
 
         tapTab("tab.help", label: "帮助", in: app)
-        reveal(element("help.privacy", in: app), in: app)
+        reveal(element("help.privacy", in: app), identifier: "help.privacy", in: app)
         attach("help-dark", from: app)
         tap("help.privacy", in: app)
         XCTAssertTrue(element("privacy.heading", in: app).waitForExistence(timeout: 5))
@@ -78,11 +81,13 @@ final class CabinDirectUITests: XCTestCase {
         tap("help.support", in: app)
         XCTAssertTrue(element("about.version", in: app).waitForExistence(timeout: 5))
         let appearance = element("about.appearance", in: app)
-        reveal(appearance, in: app)
-        XCTAssertTrue(appearance.label.contains("深色"), "Verify actual SwiftUI appearance, not a fabricated dark fixture")
+        reveal(appearance, identifier: "about.appearance", in: app, requiresHittable: false)
+        XCTAssertEqual(appearance.value as? String, "深色",
+                       "Actual SwiftUI colorScheme must be dark; \(details(appearance, identifier: "about.appearance"))")
         let textSize = element("about.text-size", in: app)
-        reveal(textSize, in: app)
-        XCTAssertTrue(textSize.label.contains("辅助功能字号"), "Verify actual Dynamic Type environment")
+        reveal(textSize, identifier: "about.text-size", in: app, requiresHittable: false)
+        XCTAssertEqual(textSize.value as? String, "辅助功能字号",
+                       "Actual SwiftUI Dynamic Type must be accessibility-sized; \(details(textSize, identifier: "about.text-size"))")
         attach("support-accessibility", from: app)
     }
 
@@ -90,12 +95,15 @@ final class CabinDirectUITests: XCTestCase {
     private func launch(appearance: XCUIDevice.Appearance, accessibilityText: Bool = false) -> XCUIApplication {
         XCUIDevice.shared.appearance = appearance
         let app = XCUIApplication()
-        // Standard system language/content-size preferences only; the app has no UI-test bypass.
+        // Normal system language/appearance/content-size preferences only. The
+        // app never reads these arguments or forces a test-only SwiftUI environment.
         app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-AppleLocale", "zh_CN",
+                               "-AppleInterfaceStyle", appearance == .dark ? "Dark" : "Light",
                                "-UIPreferredContentSizeCategoryName",
                                accessibilityText ? "UICTContentSizeCategoryAccessibilityXXXL" : "UICTContentSizeCategoryL"]
         app.launch()
         XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertEqual(XCUIDevice.shared.appearance, appearance, "System appearance request did not take effect")
         return app
     }
 
@@ -117,20 +125,64 @@ final class CabinDirectUITests: XCTestCase {
     @MainActor
     private func tap(_ identifier: String, in app: XCUIApplication) {
         let target = element(identifier, in: app)
-        reveal(target, in: app)
-        XCTAssertTrue(target.isHittable)
+        reveal(target, identifier: identifier, in: app)
+        XCTAssertTrue(target.isHittable, details(target, identifier: identifier))
         target.tap()
     }
 
     @MainActor
-    private func reveal(_ target: XCUIElement, in app: XCUIApplication) {
-        for _ in 0..<20 {
-            if target.exists && target.isHittable { return }
-            if app.collectionViews.firstMatch.exists { app.collectionViews.firstMatch.swipeUp() }
-            else if app.tables.firstMatch.exists { app.tables.firstMatch.swipeUp() }
-            else { app.swipeUp() }
+    private func reveal(_ target: XCUIElement, identifier: String, in app: XCUIApplication,
+                        requiresHittable: Bool = true) {
+        // Choose the onscreen list, not a retained offscreen tab's first list.
+        // Small/slow swipes plus frame-guided reversal recover from overscroll.
+        for attempt in 0..<16 {
+            if isVisible(target, in: app) && (!requiresHittable || target.isHittable) { return }
+            let surface = scrollSurface(in: app), viewport = surface.frame.intersection(app.frame)
+            let goDown: Bool
+            if target.exists && !target.frame.isEmpty {
+                goDown = target.frame.midY < viewport.midY
+            } else {
+                // Lazy cells may have no element until scrolled into view: search
+                // toward the end, then back toward the beginning, with a fixed bound.
+                goDown = attempt >= 8
+            }
+            if goDown { surface.swipeDown(velocity: .slow) }
+            else { surface.swipeUp(velocity: .slow) }
         }
-        XCTAssertTrue(target.exists && target.isHittable, "Element was not reachable by ordinary scrolling")
+        XCTAssertTrue(isVisible(target, in: app) && (!requiresHittable || target.isHittable),
+                      "Not reachable by bounded bidirectional scrolling; \(details(target, identifier: identifier))")
+    }
+
+    @MainActor
+    private func scrollSurface(in app: XCUIApplication) -> XCUIElement {
+        for query in [app.collectionViews, app.tables, app.scrollViews] {
+            for candidate in query.allElementsBoundByIndex {
+                if candidate.exists && candidate.isHittable && !candidate.frame.intersection(app.frame).isEmpty {
+                    return candidate
+                }
+            }
+        }
+        return app
+    }
+
+    @MainActor
+    private func isVisible(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard target.exists, !target.frame.isEmpty else { return false }
+        let overlap = target.frame.intersection(scrollSurface(in: app).frame.intersection(app.frame))
+        return !overlap.isEmpty && overlap.width >= min(44, target.frame.width / 2)
+            && overlap.height >= min(44, target.frame.height / 2)
+    }
+
+    @MainActor
+    private func details(_ target: XCUIElement, identifier: String) -> String {
+        // Only known non-sensitive controls. Never dump the app tree, session
+        // status, addresses, clipboard, pairing credentials or private screenshots.
+        let allowed = ["setting.region.preview", "setting.region.x", "setting.region.y", "setting.region.width",
+                       "setting.region.height", "setting.visible-text", "help.privacy", "help.support",
+                       "about.appearance", "about.text-size"]
+        guard allowed.contains(identifier), target.exists else { return "control=\(identifier), exists=\(target.exists)" }
+        let label = String(target.label.prefix(120)), value = String(describing: target.value ?? "").prefix(120)
+        return "control=\(identifier), type=\(target.elementType.rawValue), label=\(label), value=\(value), frame=\(target.frame), hittable=\(target.isHittable)"
     }
 
     @MainActor

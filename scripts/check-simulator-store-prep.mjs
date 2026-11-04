@@ -34,7 +34,10 @@ function stopActive() {
   if (active?.pid) { try { process.kill(-active.pid, 'SIGKILL'); } catch { /* Already exited. */ } }
 }
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { interrupted = true; stopActive(); });
-const redact = text => text.replace(/(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+\S+)/gi, '[REDACTED]');
+const redact = text => text
+  .replace(/(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+\S+)/gi, '[REDACTED]')
+  .replace(/(authorization|cookie|password|token|secret|credential|pairing[ _-]?code)\s*[:=]\s*[^\r\n]+/gi,'$1=[REDACTED]')
+  .replace(/\/(?:Users|home)\/[^\s:]+/g,'[REDACTED PATH]');
 async function run(name, command, args, timeout = 60_000, cleanup = false) {
   phase = name;
   requireValue(cleanup || !interrupted, 'Interrupted');
@@ -135,9 +138,29 @@ try {
   }
   report.state = 'simulator_ui_tests_complete'; report.passed = true;
 } catch (error) {
-  report.state = interrupted ? 'interrupted' : 'simulator_preparation_failed'; report.failed_phase = phase;
+  const failedPhase = phase;
+  report.state = interrupted ? 'interrupted' : 'simulator_preparation_failed'; report.failed_phase = failedPhase;
   report.passed = false; process.exitCode = 1;
   fs.writeFileSync(path.join(work, 'logs', 'validation-failure.log'), redact(String(error.message).slice(0, 2000)), { flag: 'wx' });
+  // Preserve bounded, explicitly failed observations without passing acceptance
+  // or exporting any failed screenshot as an approved evidence set.
+  const failedResult = path.join(work,'results','CabinDirectStorePrep.xcresult');
+  if (!interrupted && failedPhase === 'simulator-ui-tests' && fs.existsSync(failedResult)) {
+    try {
+      const summary = await jsonRun('failed-test-summary','xcrun',
+        ['xcresulttool','get','test-results','summary','--path',failedResult,'--compact']);
+      const fields = ['totalTestCount','passedTests','failedTests','skippedTests'];
+      if (fields.every(key => Number.isSafeInteger(summary[key]) && summary[key] >= 0 && summary[key] <= 100)) {
+        report.tests = {tests:summary.totalTestCount,passed:summary.passedTests,failed:summary.failedTests,
+          skipped:summary.skippedTests,expected_failures:Number.isSafeInteger(summary.expectedFailures) ? summary.expectedFailures : null};
+      }
+      const failures = Array.isArray(summary.testFailures) ? summary.testFailures.slice(0,8).map(item => ({
+        test: String(item.testIdentifier || item.testName || 'unknown').slice(0,160),
+        message: String(item.message || item.failureText || 'See bounded Xcode diagnostics').slice(0,800)
+      })) : [];
+      console.log('[failed simulator observations] '+redact(JSON.stringify({passed:false,tests:report.tests,failures})));
+    } catch { /* Keep the original failure and never retry the UI test here. */ }
+  }
 } finally {
   // A timed-out create can have completed before its stdout reached us. Resolve
   // only this run's random name/runtime, excluding every pre-existing device.

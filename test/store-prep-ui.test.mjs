@@ -22,6 +22,7 @@ test('native navigation/actions/visible-text controls expose stable accessibilit
   assert.match(app, /@ScaledMetric\(relativeTo: \.body\)/);
   assert.match(app, /\.fixedSize\(horizontal: false, vertical: true\)/);
   assert.match(app, /dynamicTypeSize\.isAccessibilitySize/);
+  assert.match(app, /\.accessibilityElement\(children: \.contain\)/);
   assert.doesNotMatch(app, /CommandLine\.arguments|ProcessInfo\.processInfo\.arguments|UITEST|UI_TEST/);
 });
 
@@ -36,6 +37,10 @@ test('native privacy/support pages are user-opened drafts with actual bundle ver
   assert.match(support, /联系.*尚待补全/);
   assert.match(support, /forInfoDictionaryKey: "CFBundleShortVersionString"/);
   assert.match(support, /forInfoDictionaryKey: "CFBundleVersion"/);
+  assert.match(support, /\.accessibilityLabel\("当前外观"\)\s*\.accessibilityValue\(appearanceName\)/);
+  assert.match(support, /private var appearanceName: String \{ colorScheme == \.dark \? "深色" : "浅色" \}/);
+  assert.match(support, /\.accessibilityLabel\("当前文字大小"\)\s*\.accessibilityValue\(textSizeName\)/);
+  assert.match(support, /private var textSizeName: String \{ dynamicTypeSize\.isAccessibilitySize \? "辅助功能字号" : "标准字号" \}/);
   assert.match(privacy, /Link\("手动打开公开隐私草稿", destination: sourceURL\)/);
   assert.match(support, /Link\("手动打开公开支持说明", destination: sourceURL\)/);
   assert.doesNotMatch(privacy + support, /URLSession|openURL\(|UIApplication\.shared\.open|mailto:|\.onAppear|\.task\s*\{/);
@@ -71,11 +76,18 @@ test('XCUITest contract is three genuine navigation checks and eight retained re
   assert.match(ui, /attachment\.lifetime = \.keepAlways/);
   assert.match(ui, /XCUIDevice\.shared\.appearance = appearance/);
   assert.match(ui, /UICTContentSizeCategoryAccessibilityXXXL/);
-  assert.match(ui, /appearance\.label\.contains\("深色"\)/);
-  assert.match(ui, /textSize\.label\.contains\("辅助功能字号"\)/);
+  assert.match(ui, /XCTAssertEqual\(appearance\.value as\? String, "深色"/);
+  assert.match(ui, /XCTAssertEqual\(textSize\.value as\? String, "辅助功能字号"/);
+  assert.match(ui, /reveal\(preview, identifier: "setting\.region\.preview", in: app, requiresHittable: false\)/);
+  assert.match(ui, /XCTAssertTrue\(slider\.isHittable/);
+  assert.match(ui, /target\.frame\.intersection/);
+  assert.match(ui, /surface\.swipeDown\(velocity: \.slow\)/);
+  assert.match(ui, /surface\.swipeUp\(velocity: \.slow\)/);
+  assert.match(ui, /details\(appearance, identifier: "about\.appearance"\)/);
+  assert.doesNotMatch(ui, /app\.debugDescription|app\.description|\.preferredColorScheme|\.environment\(/);
   assert.doesNotMatch(ui, /launchEnvironment|demo\.start|saveSettings|saveSession|setStatus|URLSession|startCapture|startRecording|sendActions/);
   const args = ui.split('app.launchArguments = [')[1].split('app.launch()')[0];
   assert.deepEqual([...args.matchAll(/"(-[A-Za-z]+)"/g)].map(match => match[1]), [
-    '-AppleLanguages', '-AppleLocale', '-UIPreferredContentSizeCategoryName'
+    '-AppleLanguages', '-AppleLocale', '-AppleInterfaceStyle', '-UIPreferredContentSizeCategoryName'
   ]);
 });

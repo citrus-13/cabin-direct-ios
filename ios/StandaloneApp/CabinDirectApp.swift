@@ -37,13 +37,16 @@ final class DirectSetupModel: ObservableObject {
            next.updatedAt > previousSample.updatedAt, next.frames >= previousSample.frames {
             measuredFPS = Double(next.frames - previousSample.frames) / (next.updatedAt - previousSample.updatedAt)
         } else if next?.isCurrent != true || next?.sessionID != previousSample?.sessionID {
-            measuredFPS = nil
+            if measuredFPS != nil { measuredFPS = nil }
         }
         if next?.updatedAt != previousSample?.updatedAt || next?.sessionID != previousSample?.sessionID {
             previousSample = next
         }
-        status = next
-        session = DirectSessionStore.session()
+        // Avoid invalidating an idle UI for nil -> nil. Preserve every nonnil
+        // refresh so countdowns and time-based heartbeat expiry still redraw.
+        if next != nil || status != nil { status = next }
+        let nextSession = DirectSessionStore.session()
+        if nextSession != nil || session != nil { session = nextSession }
         if let stoppingSessionID {
             if next?.sessionID == stoppingSessionID,
                ["stopped", "ended", "error"].contains(next?.state ?? "") {
@@ -219,6 +222,7 @@ struct DirectSetupView: View {
                                         width: model.settings.regionWidth, height: model.settings.regionHeight)
                         .frame(height: regionPreviewHeight)
                         .accessibilityElement(children: .ignore)
+                        .accessibilityAddTraits(.isImage)
                         .accessibilityLabel("文字识别区域示意图，非实际屏幕预览")
                         .accessibilityIdentifier("setting.region.preview")
                         .accessibilityValue("左侧 \(Int(model.settings.regionX * 100))%，顶部 \(Int(model.settings.regionY * 100))%，宽度 \(Int(model.settings.regionWidth * 100))%，高度 \(Int(model.settings.regionHeight * 100))%")
@@ -422,6 +426,7 @@ struct DirectSetupView: View {
                 .accessibilityValue("\(Int(value.wrappedValue * 100))%")
                 .accessibilityIdentifier(identifier)
         }
+        .accessibilityElement(children: .contain)
     }
 }
 
@@ -492,6 +497,18 @@ private struct DirectSupportAboutView: View {
                 Text("开发验证版 · 尚未完成真实 iPhone 与 Tesla 实车验收；不代表 App Store / TestFlight 上架或审核通过。")
                     .foregroundStyle(.secondary)
             }
+            Section("当前显示设置") {
+                Text("当前外观：\(appearanceName)")
+                    .accessibilityLabel("当前外观")
+                    .accessibilityValue(appearanceName)
+                    .accessibilityIdentifier("about.appearance")
+                Text("当前文字大小：\(textSizeName)")
+                    .accessibilityLabel("当前文字大小")
+                    .accessibilityValue(textSizeName)
+                    .accessibilityIdentifier("about.text-size")
+                Text("文字与布局跟随系统设置。本页不收集或上传显示设置，也不证明已完成全部无障碍审核。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("支持说明") {
                 Text("请先查看帮助中的连接与隐私说明。联系人与正式支持元数据尚待补全；这里没有客服邮箱、账号、支持上传或自动收集功能。公开仓库入口不代表工单系统已启用。")
                     .accessibilityIdentifier("about.contact-pending")
@@ -500,18 +517,13 @@ private struct DirectSupportAboutView: View {
                     .accessibilityIdentifier("support.source-link")
                     .accessibilityHint("主动点击后在外部打开 GitHub；不会自动发送诊断")
             }
-            Section("当前显示设置") {
-                Text("当前外观：\(colorScheme == .dark ? "深色" : "浅色")")
-                    .accessibilityIdentifier("about.appearance")
-                Text("当前文字大小：\(dynamicTypeSize.isAccessibilitySize ? "辅助功能字号" : "标准字号")")
-                    .accessibilityIdentifier("about.text-size")
-                Text("文字与布局跟随系统设置。本页不收集或上传显示设置，也不证明已完成全部无障碍审核。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
         }
         .navigationTitle("支持与关于")
         .accessibilityIdentifier("screen.support")
     }
+
+    private var appearanceName: String { colorScheme == .dark ? "深色" : "浅色" }
+    private var textSizeName: String { dynamicTypeSize.isAccessibilitySize ? "辅助功能字号" : "标准字号" }
 }
 
 private struct DirectRegionPreview: View {

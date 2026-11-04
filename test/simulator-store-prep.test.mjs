@@ -190,6 +190,7 @@ async function simulateRunner(options = {}) {
   const pngBytes = png();
   const fakeFS = {
     realpathSync: () => repo,
+    existsSync: file => files.has(file) || (options.testFailure && file === work+'/results/CabinDirectStorePrep.xcresult'),
     mkdirSync() {},
     readFileSync(file, encoding) { assert.ok(files.has(file), 'Unexpected fake read: ' + file); const value = files.get(file); return encoding ? value.toString(encoding) : value; },
     lstatSync(file) { assert.ok(files.has(file)); return { isFile: () => true, isSymbolicLink: () => false, size: files.get(file).length }; },
@@ -280,6 +281,18 @@ test('[SIMULATED RUNNER] cleanup failure cannot be reported as successful simula
   const result = await simulateRunner({ cleanupFailure: true });
   assert.equal(result.report.passed, false); assert.equal(result.report.state, 'owned_simulator_cleanup_failed');
   assert.equal(result.report.owned_simulator_deleted, false); assert.equal(result.code, 1);
+});
+
+test('[SIMULATED RUNNER] partial actual-result-shaped observations stay failed and never rerun tests', async () => {
+  const result = await simulateRunner({testFailure:true,summary:{result:'Failed',totalTestCount:3,
+    passedTests:1,failedTests:2,skippedTests:0,testFailures:[{testIdentifier:'KNOWN_SYNTHETIC_TEST',message:'SYNTHETIC assertion failed'}]}});
+  assert.equal(result.report.passed,false);
+  assert.equal(result.report.failed_phase,'simulator-ui-tests');
+  assert.equal(result.report.tests.passed,1); assert.equal(result.report.tests.failed,2);
+  assert.equal(result.report.screenshots.length,0);
+  assert.equal(result.calls.filter(call=>call.command==='xcodebuild' && call.args[0]==='test').length,1);
+  assert.equal(result.report.owned_simulator_deleted,true);
+  assert.ok(result.consoleOutput.some(line=>line.startsWith('[failed simulator observations] ')));
 });
 
 test('[STATIC] runner has owned-only cleanup, external outputs and no signing/account/runtime-download/publication flow', () => {
