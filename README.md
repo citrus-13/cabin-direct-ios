@@ -12,6 +12,8 @@ Start with the [installation and signing guide](docs/INSTALL.md), preferably bui
 
 ## Native app flow
 
+Remote App Store preparation continues in the [draft submission kit](docs/store/README.md). New source adds native privacy/support navigation, accessibility improvements and a separate Simulator UI-test scheme. The historical v0.4.0-preview.1 IPA does not include later source changes. Only a successful exact-commit run of the dedicated store-preparation workflow can establish Simulator execution; it does not establish phone, capture or vehicle acceptance.
+
 - **Connect:** network guidance, current session address and code, an original foreground-only sample, and redacted runtime diagnostics.
 - **Share:** save settings, optionally enable on-device visible-text recognition and adjust its region, acknowledge screen/notification exposure, then personally operate the genuine iOS system broadcast picker. The app does not programmatically start capture.
 - **Help:** privacy, connection troubleshooting, audio behavior and compatibility limits. The existing player and existing audio route remain responsible for sound; V1 neither captures nor relays microphone or app audio.

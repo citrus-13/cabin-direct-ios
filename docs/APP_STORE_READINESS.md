@@ -6,14 +6,14 @@ Scope: Cabin Direct 0.4.0, a native iPhone local screen companion with a ReplayK
 
 | Gate | Current evidence / required next proof |
 | --- | --- |
-| Earlier actual unsigned compile | The recorded `b2b8cb2` result belongs to the previous prototype, not this V1 profile. |
-| V1 actual iOS compile | Verify the [workflow record](https://github.com/citrus-13/cabin-direct-ios/actions/workflows/cabin-public-build.yml) for the exact V1 revision: actual app/extension compiler outcome, packaged privacy validation and hashes. Source tests or a different revision cannot substitute. |
+| Published developer preview | [v0.4.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.1), source12517ec: actual unsigned Release compilation and121 source tests passed; downloaded metadata/checksums independently verified. |
+| Updated source / simulator | New store-preparation changes require their own exact-commit iOS and real Simulator run. Do not transfer the historical IPA's evidence automatically; consult the dedicated workflow and simulator report. |
 | Signing and installation | No signed IPA, provisioned installation or verified App Group / ReplayKit entitlement behavior. |
 | Actual native sample | Source implements an original sample on production transport; verify startup, permission denial/retry, browser pairing, frame advance, expiry and acknowledged teardown on a real iPhone. |
 | Actual screen broadcast | Verify manual capture initiation, rotation, optional OCR region, notifications, pause/resume, stale clearing, matching stop, forced termination and explicit unconfirmed UI recovery. |
 | Network/device coverage | Trusted Wi-Fi and hotspot, address-change teardown, IPv4/IPv6-only reachability and browser fallback require live evidence. No IPv6-only proof yet. |
 | Stability and safety | No thermal/endurance/battery proof or parked Tesla acceptance. Calls, lock/unlock, system termination and long sessions remain tests, not guarantees. |
-| Submission materials | No public device-evidence screenshots, finalized listing, publisher contact, support URL, hosted final privacy policy, trademark clearance or Apple review result. |
+| Submission materials | [Draft kit](store/README.md) now includes bounded Chinese metadata, English reviewer instructions, disclosure/rights worksheets and screenshot/accessibility plan. Publisher/contact, finalized URLs, real-device proof and submission remain pending. |
 
 The code supplies Connect / Share / Help, diagnostics, a real system broadcast picker and an optional on-device visible-text region. The original sample is foreground-only, at most 1 fps and ten minutes; it is neither recorded phone content nor a fake successful vehicle connection. The main app entering the background must not terminate a real ReplayKit broadcast. Both runtimes must finish server cleanup before reporting a completed stop.
 

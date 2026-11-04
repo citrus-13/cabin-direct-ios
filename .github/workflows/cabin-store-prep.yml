@@ -1,0 +1,88 @@
+name: Cabin Direct remote store preparation
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: cabin-store-prep-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  remote_store_prep:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository_owner == 'citrus-13' && github.ref == 'refs/heads/codex/public-build' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_UPGRADE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+      CABIN_IOS_CONFIGURATION: Release
+    steps:
+      - name: Checkout reviewed source without saved authentication
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Select Node 22 without cache storage
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Prepare dedicated ephemeral directories
+        run: |
+          if [[ "$RUNNER_TEMP" != /* || "$RUNNER_TEMP" == *$'\n'* || "$RUNNER_TEMP" == *$'\r'* ]]; then exit 1; fi
+          mkdir -p "$RUNNER_TEMP/cabin-store-tmp" "$RUNNER_TEMP/cabin-store-tests"
+          printf '%s\n' \
+            "TMPDIR=$RUNNER_TEMP/cabin-store-tmp" \
+            "CABIN_IOS_WORK_DIR=$RUNNER_TEMP/cabin-store-ios" \
+            "CABIN_IOS_TEST_WORK_DIR=$RUNNER_TEMP/cabin-store-tests" \
+            "CABIN_SIM_WORK_DIR=$RUNNER_TEMP/cabin-store-simulator" \
+            "CABIN_SIM_OUT_DIR=$RUNNER_TEMP/cabin-store-screenshots" \
+            "CABIN_SIM_RELEASE_DIR=$RUNNER_TEMP/cabin-store-release" \
+            "CABIN_STORE_TEST_LOG=$RUNNER_TEMP/cabin-store-tests.tap" \
+            "npm_config_cache=$RUNNER_TEMP/cabin-store-npm" >> "$GITHUB_ENV"
+      - name: Prepare free installed toolchain and source checks
+        run: |
+          if ! brew list --versions xcodegen >/dev/null 2>&1; then brew install xcodegen; fi
+          command -v gh
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run check
+          node scripts/check-store-metadata.mjs
+      - name: Actual unsigned iOS Release build and packaged privacy checks
+        run: node scripts/build-ios.mjs
+      - name: All source tests without failures or skips
+        run: node --test 2>&1 | tee "$CABIN_STORE_TEST_LOG"
+      - name: Actual simulator UI tests and original screenshots
+        run: node scripts/check-simulator-store-prep.mjs
+      - name: Preserve verified evidence in draft release for maintainer review
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/stage-store-prep.mjs
+      - name: Bounded failure diagnostics
+        if: ${{ failure() }}
+        run: |
+          node --input-type=module <<'DIAGNOSTICS'
+          import fs from 'node:fs';
+          const scrub = value => value
+            .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?(?:-----END [^-]*PRIVATE KEY-----|$)/g, '[REDACTED KEY]')
+            .replace(/(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+\S+)/g, '[REDACTED TOKEN]')
+            .replace(/(authorization|cookie|password|token|secret|credential|pairing[ _-]?code)\s*[:=]\s*[^\r\n]+/gi, '$1=[REDACTED]')
+            .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/g, 'https://[REDACTED]@')
+            .replace(/\/(?:Users|home)\/[^\s:]+/g, '[REDACTED PATH]');
+          const files = [
+            [process.env.CABIN_SIM_WORK_DIR,'/logs/validation-failure.log'],
+            [process.env.CABIN_SIM_WORK_DIR,'/logs/simulator-ui-tests.log'],
+            [process.env.CABIN_SIM_WORK_DIR,'/logs/xcresult-summary-schema.log'],
+            [process.env.CABIN_IOS_WORK_DIR,'/logs/unsigned-generic-ios-build.log']
+          ];
+          for (const [base,suffix] of files) {
+            const file = base + suffix;
+            if (fs.existsSync(file)) console.log(scrub(fs.readFileSync(file,'utf8').slice(-48000)).split('\n').filter(line => /error|failed|unsupported|invalid|exception|TEST|build/i.test(line)).slice(-50).map(line => line.slice(0,1000)).join('\n'));
+          }
+          DIAGNOSTICS

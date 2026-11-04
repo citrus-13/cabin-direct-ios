@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "draft_not_submitted",
+  "source_profile": "screen-companion-v1",
+  "version": "0.4.0",
+  "platform": "iOS",
+  "device_family": "iPhone",
+  "minimum_ios": "16.0",
+  "ui_languages": ["zh-Hans"],
+  "listing": {
+    "locale": "zh-Hans",
+    "name": "Cabin Direct",
+    "subtitle": "本地屏幕共享与可见文字识别",
+    "promotional_text": "把允许录制的可见画面，分享给可信局域网中的配对浏览器。可选设备端文字识别；不需要应用账号或开发者云中继。仅在停车及安全环境中使用。",
+    "description": "Cabin Direct 是面向 iPhone 的本地屏幕共享工具，可把允许录制的可见内容发送到你选择并配对的浏览器。\n\n你控制何时开始\n保存设置、阅读隐私提示，再亲自操作 iOS 系统广播面板。应用不会自动开启录屏，也不采集麦克风或转发播放器音轨。声音继续使用原播放器和原来的音频连接。\n\n在自己的网络中连接\n接收浏览器不需要安装应用。输入手机显示的局域网地址，再输入单独显示的六位配对码。初次配对窗口为 120 秒，最多允许五次错误尝试。本地 HTTP 未加密：请只在自己控制的可信 Wi-Fi 或热点中使用，不要向公网开放端口。\n\n按需识别可见文字\n可选的设备端文字识别仅处理屏幕上已显示的区域，不读取音乐账号、后台播放列表或车辆数据，也不是联网歌词服务。识别结果可能错误或延迟。\n\n先用原创样例了解连接\n原创样例在应用前台生成演示卡片，不录制手机屏幕；适合先了解浏览器配对和接收流程。样例不代表真实录屏或任何车辆的兼容性验证。\n\n清楚了解边界\n网络接口或地址变化会结束当前会话，需要手动重新开始及配对。暂停、过期或断开时，接收端隐藏旧画面。受保护内容可能无法共享；不绕过 DRM，不承诺锁屏持续运行或所有音乐及流媒体平台兼容。\n\n广播可能显示私人消息和通知，请先检查共享内容。使用车辆浏览器时仅限停车状态，具体设备、网络与固件的兼容性需要分别验证。",
+    "keywords": "屏幕共享,局域网络,浏览器,文字识别,本地连接,停车显示",
+    "whats_new": "首次版本候选：本地浏览器配对、用户发起的屏幕共享、可选可见文字识别、原创连接样例和脱敏诊断。发布前仍需完成签名、真机测试与最终审核资料确认。"
+  },
+  "category_candidate": "Utilities",
+  "secondary_category": null,
+  "age_rating": null,
+  "pricing": null,
+  "publisher": {"public_name": null, "public_contact_email": null, "review_contact": null},
+  "submission_urls": {"privacy_policy": null, "support": null, "marketing": null},
+  "draft_references": {
+    "privacy": "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/PRIVACY.md",
+    "support": "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/SUPPORT.md"
+  },
+  "evidence": {
+    "device_installation": false,
+    "real_replaykit_broadcast": false,
+    "device_network_and_stability": false,
+    "accessibility_manual_acceptance": false,
+    "publisher_and_urls_confirmed": false,
+    "privacy_label_finalized": false,
+    "export_compliance_confirmed": false,
+    "content_and_name_rights_confirmed": false,
+    "store_screenshots_finalized": false,
+    "app_store_submission_authorized": false
+  }
+}

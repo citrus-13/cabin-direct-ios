@@ -102,6 +102,7 @@ struct DirectSetupView: View {
     @State private var acknowledged = false
     @State private var copied = ""
     @State private var confirmPendingRecovery = false
+    @ScaledMetric(relativeTo: .body) private var regionPreviewHeight: CGFloat = 170
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var displayedStatus: DirectRuntimeStatus? { demo.running ? demo.status : model.status }
@@ -125,11 +126,11 @@ struct DirectSetupView: View {
     var body: some View {
         TabView {
             NavigationStack { connectView.navigationTitle("Cabin Direct") }
-                .tabItem { Label("连接", systemImage: "wifi") }
+                .tabItem { Label("连接", systemImage: "wifi").accessibilityIdentifier("tab.connect") }
             NavigationStack { shareView.navigationTitle("共享屏幕") }
-                .tabItem { Label("共享", systemImage: "rectangle.on.rectangle") }
+                .tabItem { Label("共享", systemImage: "rectangle.on.rectangle").accessibilityIdentifier("tab.share") }
             NavigationStack { helpView.navigationTitle("帮助与隐私") }
-                .tabItem { Label("帮助", systemImage: "questionmark.circle") }
+                .tabItem { Label("帮助", systemImage: "questionmark.circle").accessibilityIdentifier("tab.help") }
         }
         .tint(.teal)
         .onReceive(timer) { _ in
@@ -160,6 +161,8 @@ struct DirectSetupView: View {
                     Image(systemName: "display.2").font(.largeTitle).foregroundStyle(.teal)
                     Text("停车时，让可见画面多一块屏幕。")
                         .font(.title2.bold())
+                        .accessibilityAddTraits(.isHeader)
+                        .accessibilityIdentifier("connect.headline")
                     Text("iPhone 本地服务 → 同网络浏览器。接收端不需要安装 App，声音仍由原播放器和你原来的音频连接播放。")
                         .foregroundStyle(.secondary)
                 }.padding(.vertical, 8)
@@ -171,6 +174,7 @@ struct DirectSetupView: View {
                     .font(.footnote).foregroundStyle(.secondary)
                 Label("本地 HTTP 未加密", systemImage: "lock.open")
                     .foregroundStyle(.orange)
+                    .accessibilityIdentifier("network.http-warning")
                 Text("配对码限制访问，但不能代替 HTTPS。不要在不信任的网络广播私人内容，不要做端口转发或开放公网访问。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -180,6 +184,7 @@ struct DirectSetupView: View {
                 if demo.running {
                     Button(demo.stopping ? "正在清理原创演示…" : "停止原创演示", role: .destructive) { demo.stop() }
                         .disabled(demo.stopping)
+                        .accessibilityIdentifier("action.demo.stop")
                     Text(demo.message).font(.footnote)
                     Text("仅前台 · 最多 10 分钟 · 切到其他 App 即停止")
                         .font(.caption).foregroundStyle(.secondary)
@@ -187,47 +192,59 @@ struct DirectSetupView: View {
                     Button { demo.start(settings: model.settings) } label: {
                         Label("启动原创样例演示", systemImage: "play.rectangle.fill")
                     }.disabled(model.active || model.stopPending)
+                        .accessibilityIdentifier("action.demo.start")
+                        .accessibilityHint("仅启动原创合成样例，不录制屏幕；离开前台将停止")
                     if !demo.message.isEmpty { Text(demo.message).font(.footnote) }
                 }
             }
             connectionSection
             diagnosticsLink
         }
+        .accessibilityIdentifier("screen.connect")
     }
 
     private var shareView: some View {
         List {
             Section { validationNotice }
             Section("1 · 选择可见内容处理") {
-                Picker("处理方式", selection: $model.settings.lyricMode) {
-                    Text("只传画面").tag(DirectLyricMode.mirror)
-                    Text("画面 + 设备端文字识别").tag(DirectLyricMode.visibleText)
-                }
+                Toggle("识别屏幕上的可见文字（设备端）", isOn: Binding(
+                    get: { model.settings.lyricMode == .visibleText },
+                    set: { model.settings.lyricMode = $0 ? .visibleText : .mirror }))
+                    .accessibilityIdentifier("setting.visible-text")
+                    .accessibilityHint("可选；只处理选定区域内已经显示的文字，不查询网络歌词")
                 Text("默认仅共享可见画面。不读取音乐账号、后台播放列表或车辆数据，不向歌词网站查询。文字识别是可选功能，只识别屏幕上已显示的文字，可能错误或延迟；不是逐字同步歌词服务。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if model.settings.lyricMode == .visibleText {
                     DirectRegionPreview(x: model.settings.regionX, y: model.settings.regionY,
                                         width: model.settings.regionWidth, height: model.settings.regionHeight)
-                        .frame(height: 170)
+                        .frame(height: regionPreviewHeight)
+                        .accessibilityElement(children: .ignore)
                         .accessibilityLabel("文字识别区域示意图，非实际屏幕预览")
+                        .accessibilityIdentifier("setting.region.preview")
+                        .accessibilityValue("左侧 \(Int(model.settings.regionX * 100))%，顶部 \(Int(model.settings.regionY * 100))%，宽度 \(Int(model.settings.regionWidth * 100))%，高度 \(Int(model.settings.regionHeight * 100))%")
                     Text("识别区域（按显示方向，左上角为原点）")
                         .font(.caption).foregroundStyle(.secondary)
-                    regionSlider("左侧", value: $model.settings.regionX,
+                    regionSlider("左侧", identifier: "setting.region.x", value: $model.settings.regionX,
                                  maximum: max(0, 1 - model.settings.regionWidth))
-                    regionSlider("顶部", value: $model.settings.regionY,
+                    regionSlider("顶部", identifier: "setting.region.y", value: $model.settings.regionY,
                                  maximum: max(0, 1 - model.settings.regionHeight))
-                    regionSlider("宽度", value: $model.settings.regionWidth, minimum: 0.05,
+                    regionSlider("宽度", identifier: "setting.region.width", value: $model.settings.regionWidth, minimum: 0.05,
                                  maximum: 1 - model.settings.regionX)
-                    regionSlider("高度", value: $model.settings.regionHeight, minimum: 0.05,
+                    regionSlider("高度", identifier: "setting.region.height", value: $model.settings.regionHeight, minimum: 0.05,
                                  maximum: 1 - model.settings.regionY)
                 }
                 Stepper("本地端口：\(Int(model.settings.port))", value: $model.settings.port, in: 1024...65535)
+                    .accessibilityIdentifier("setting.port")
+                    .accessibilityValue("\(Int(model.settings.port))")
                 Button("保存共享设置") { model.save() }
+                    .accessibilityIdentifier("action.settings.save")
+                    .accessibilityHint("仅保存设置，不会启动屏幕广播")
                 if model.saved { Label("已保存", systemImage: "checkmark.circle").foregroundStyle(.teal) }
             }.disabled(settingsLocked)
             Section("2 · 亲自启动 iOS 系统广播") {
                 Toggle("我已停车，并了解屏幕与通知可能被看到", isOn: $acknowledged)
                     .disabled(model.active || demo.running)
+                    .accessibilityIdentifier("consent.screen-sharing")
                 Text("建议先开专注模式，关闭敏感通知并隐藏不想共享的内容。此确认不会启动录屏；只有你点下方系统按钮并在 iOS 面板确认，才会开始广播。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if model.saved && acknowledged && !model.active && !demo.running && !model.stopPending {
@@ -246,6 +263,7 @@ struct DirectSetupView: View {
                     Button(model.stopPending ? "停止请求待确认…" : "停止本次系统广播", role: .destructive) {
                         model.requestStop()
                     }.disabled(model.stopPending)
+                        .accessibilityIdentifier("action.broadcast.stop")
                 }
                 if model.stopPending {
                     Text("若长时间未确认，使用 iPhone 顶部系统录屏指示器结束。心跳超时不会被当作停止成功。")
@@ -253,11 +271,13 @@ struct DirectSetupView: View {
                     if !model.active {
                         Button("我已在系统中检查，解除界面等待") { confirmPendingRecovery = true }
                             .font(.footnote)
+                            .accessibilityIdentifier("action.stop-recovery")
                     }
                 }
             }
             connectionSection
         }
+        .accessibilityIdentifier("screen.share")
     }
 
     private var connectionSection: some View {
@@ -265,6 +285,7 @@ struct DirectSetupView: View {
             HStack {
                 Label(statusTitle, systemImage: statusSymbol)
                     .foregroundStyle(currentStatus == nil ? Color.secondary : Color.teal)
+                    .accessibilityIdentifier("session.status")
                 Spacer()
                 if demo.running { Text("原创 DEMO").font(.caption.bold()).foregroundStyle(.orange) }
             }
@@ -279,13 +300,15 @@ struct DirectSetupView: View {
                         Button { copy(address, label: "地址已复制；其中不包含配对凭据。") } label: {
                             Label("复制此局域网地址", systemImage: "doc.on.doc")
                         }.font(.footnote)
+                            .accessibilityIdentifier("action.receiver.copy-address")
                     }
                 }
                 if pairRemaining > 0, let session = displayedSession {
                     Text(session.pairingCode)
-                        .font(.system(size: 36, weight: .bold, design: .monospaced))
+                        .font(.system(.largeTitle, design: .monospaced).weight(.bold))
                         .accessibilityLabel("配对码 \(session.pairingCode.map(String.init).joined(separator: " "))")
                     Button("明确复制本次配对码") { copy(session.pairingCode, label: "配对码已复制；请勿发给不信任的人。") }
+                        .accessibilityIdentifier("action.receiver.copy-code")
                     Text("在浏览器输入上方地址，再单独输入此码。剩余 \(pairRemaining) 秒，最多 5 次错误尝试；地址不携带密钥或配对码。")
                         .font(.footnote).foregroundStyle(.secondary)
                 } else if status.port > 0 {
@@ -307,6 +330,14 @@ struct DirectSetupView: View {
 
     private var helpView: some View {
         List {
+            Section("隐私与支持") {
+                NavigationLink { DirectPrivacyStatementView() } label: {
+                    Label("隐私声明（草稿）", systemImage: "hand.raised")
+                }.accessibilityIdentifier("help.privacy")
+                NavigationLink { DirectSupportAboutView() } label: {
+                    Label("支持与关于", systemImage: "info.circle")
+                }.accessibilityIdentifier("help.support")
+            }
             Section { validationNotice }
             Section("一步步连接") {
                 Text("1. 停车并将手机和接收浏览器接入你控制的网络。允许 iOS 的本地网络访问。")
@@ -333,6 +364,7 @@ struct DirectSetupView: View {
             }.font(.footnote)
             diagnosticsLink
         }
+        .accessibilityIdentifier("screen.help")
     }
 
     private var validationNotice: some View {
@@ -341,6 +373,8 @@ struct DirectSetupView: View {
                 .font(.footnote)
         } icon: { Image(systemName: "exclamationmark.shield") }
             .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("notice.device-unverified")
     }
 
     private var diagnosticsLink: some View {
@@ -350,6 +384,7 @@ struct DirectSetupView: View {
                                       fps: demo.running ? demo.measuredFPS : model.measuredFPS,
                                       stopPending: model.stopPending)
             }
+            .accessibilityIdentifier("help.diagnostics")
         }
     }
 
@@ -378,13 +413,104 @@ struct DirectSetupView: View {
                                      options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(120)])
         copied = label
     }
-    private func regionSlider(_ title: String, value: Binding<Double>, minimum: Double = 0,
+    private func regionSlider(_ title: String, identifier: String, value: Binding<Double>, minimum: Double = 0,
                               maximum: Double) -> some View {
         VStack(alignment: .leading) {
-            Text("\(title)：\(Int(value.wrappedValue * 100))%").font(.caption)
+            Text("\(title)：\(Int(value.wrappedValue * 100))%").font(.caption).accessibilityHidden(true)
             Slider(value: value, in: minimum...max(minimum + 0.001, maximum))
                 .accessibilityLabel(title)
+                .accessibilityValue("\(Int(value.wrappedValue * 100))%")
+                .accessibilityIdentifier(identifier)
         }
+    }
+}
+
+private struct DirectPrivacyStatementView: View {
+    private let sourceURL = URL(string: "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/PRIVACY.md")!
+
+    var body: some View {
+        List {
+            Section {
+                Text("隐私声明 · 草稿")
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("privacy.heading")
+                Text("这是开发验证版的本地功能说明，不是已通过 Apple 审核的隐私标签。正式发布主体、联系方法与政策元数据尚待补全；不要把本页当成已完成的上架手续。")
+                    .foregroundStyle(.secondary)
+            }
+            Section("你决定何时共享") {
+                Text("App 内的引导路径先保存设置并确认隐私提示，再由你亲自操作 iOS 系统广播面板。已配置的扩展也可能从控制中心由你明确启动；App 的复选框不是不可绕过的系统入口。此 App 不会自动开始录屏。")
+                Text("屏幕可能包含通知、消息与账号信息。建议开启专注模式并避开敏感内容；不能保证系统或其他 App 隐藏所有通知。只共享你有权显示且允许录制的内容；不绕过 DRM。")
+            }
+            Section("本地处理与传输") {
+                Text("没有 App 账号、开发者云端接收服务、广告跟踪、云端 OCR 或外部歌词查询。可选文字识别只在设备上处理选定区域的可见内容，不读取后台歌曲或车辆资料。")
+                Text("最新画面与可选识别文字临时传给你配对的浏览器，不生成录屏或识别历史档案。原创样例演示只绘制合成卡片，不捕获手机屏幕。本功能不采集或转发麦克风与播放器音轨。")
+                Label("HTTP 不加密，只使用你控制的可信局域网", systemImage: "lock.open")
+                    .foregroundStyle(.orange)
+                    .accessibilityIdentifier("privacy.http-warning")
+                Text("配对限制访问，不等于加密。网络参与者可能观察流量；接收设备、浏览器或其扩展也可能保存内容。已被接收方保存的内容无法由本 App 撤回。不要转发端口或公开配对码。")
+            }
+            Section("本地保存与停止") {
+                Text("画面与识别结果只保留有界的最新内容。暂停、过期或断开时隐藏旧结果，停止时清理运行时；这不是内存取证擦除或接收端存储清除保证。")
+                Text("真实广播的临时凭据保存在 App Group 中，供 App 与扩展协调。正常停止会清除匹配会话；最长八小时后凭据不可再用。若进程突然终止，失效文件可能保留至覆盖或移除 App 数据。设置与最后状态会留在本机；原创样例演示不把会话写入共享存储。")
+                Text("只有你明确点击时才复制地址、配对码或脱敏诊断。本机剪贴板分别设置两分钟或五分钟过期且不参与通用剪贴板，最终行为由 iOS 管理。浏览器配对 Cookie 随会话失效，不是账号或跟踪 Cookie。")
+                Text("App 停止操作需要等待扩展确认。心跳超时不等于停止成功；仅解除界面等待也不会注销凭据。真实广播不会因主 App 退到后台自动结束，请使用停止按钮或 iOS 系统录屏指示器。")
+            }
+            Section("公开原文") {
+                Text("只有主动点下面链接才会离开 App 查看 GitHub 文档；本页不会自动联网或提交支持数据。正式联系信息仍待提供。")
+                    .foregroundStyle(.secondary)
+                Link("手动打开公开隐私草稿", destination: sourceURL)
+                    .accessibilityIdentifier("privacy.source-link")
+            }
+        }
+        .navigationTitle("隐私声明")
+        .accessibilityIdentifier("screen.privacy")
+    }
+}
+
+private struct DirectSupportAboutView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let sourceURL = URL(string: "https://github.com/citrus-13/cabin-direct-ios/blob/codex/public-build/docs/SUPPORT.md")!
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "未提供"
+    }
+    private var build: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "未提供"
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Cabin Direct")
+                    .font(.title2.bold())
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier("about.heading")
+                Text("版本 \(version)（构建 \(build)）")
+                    .font(.headline)
+                    .accessibilityIdentifier("about.version")
+                Text("开发验证版 · 尚未完成真实 iPhone 与 Tesla 实车验收；不代表 App Store / TestFlight 上架或审核通过。")
+                    .foregroundStyle(.secondary)
+            }
+            Section("支持说明") {
+                Text("请先查看帮助中的连接与隐私说明。联系人与正式支持元数据尚待补全；这里没有客服邮箱、账号、支持上传或自动收集功能。公开仓库入口不代表工单系统已启用。")
+                    .accessibilityIdentifier("about.contact-pending")
+                Text("如你自行向他人提供诊断，请先脱敏。不要发送配对码、会话凭据、签名描述文件、账号信息或私人屏幕。App 内的脱敏诊断只在你明确点击时复制，不会自动提交。")
+                Link("手动打开公开支持说明", destination: sourceURL)
+                    .accessibilityIdentifier("support.source-link")
+                    .accessibilityHint("主动点击后在外部打开 GitHub；不会自动发送诊断")
+            }
+            Section("当前显示设置") {
+                Text("当前外观：\(colorScheme == .dark ? "深色" : "浅色")")
+                    .accessibilityIdentifier("about.appearance")
+                Text("当前文字大小：\(dynamicTypeSize.isAccessibilitySize ? "辅助功能字号" : "标准字号")")
+                    .accessibilityIdentifier("about.text-size")
+                Text("文字与布局跟随系统设置。本页不收集或上传显示设置，也不证明已完成全部无障碍审核。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("支持与关于")
+        .accessibilityIdentifier("screen.support")
     }
 }
 
@@ -441,17 +567,20 @@ private struct DirectDiagnosticsView: View {
         List {
             Section {
                 Text(diagnosticText).font(.system(.footnote, design: .monospaced)).textSelection(.enabled)
+                    .accessibilityIdentifier("diagnostics.redacted-text")
                 Button(copied ? "已复制脱敏诊断" : "复制脱敏诊断") {
                     UIPasteboard.general.setItems([["public.utf8-plain-text": diagnosticText]],
                                                  options: [.localOnly: true, .expirationDate: Date().addingTimeInterval(300)])
                     copied = true
                 }
+                .accessibilityIdentifier("action.diagnostics.copy")
             }
             Section {
                 Text("这里只显示扩展或演示运行时实际报告的数据。端口为 0 表示尚未报告就绪；FPS 是采样间帧差的估计值，不是车机接收速度。旧心跳不会确认为在线或已停止。诊断不包含配对凭据、地址、会话标识或识别文字；不会自动上传。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }.navigationTitle("脱敏诊断")
+            .accessibilityIdentifier("screen.diagnostics")
     }
 }
 
@@ -461,6 +590,7 @@ struct DirectBroadcastPicker: UIViewRepresentable {
         view.preferredExtension = Bundle.main.object(forInfoDictionaryKey: "TCBroadcastExtensionIdentifier") as? String
         view.showsMicrophoneButton = false
         view.accessibilityLabel = "打开 Cabin Direct 系统广播面板"
+        view.accessibilityIdentifier = "action.system-broadcast-picker"
         return view
     }
     func updateUIView(_ view: RPSystemBroadcastPickerView, context: Context) {}

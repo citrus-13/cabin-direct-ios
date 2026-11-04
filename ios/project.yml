@@ -113,6 +113,7 @@ targets:
       path: Config/Direct-App-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct
+        CFBundleLocalizations: [zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
@@ -158,6 +159,7 @@ targets:
       path: Config/Direct-Broadcast-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct Screen
+        CFBundleLocalizations: [zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
@@ -185,11 +187,38 @@ targets:
     dependencies:
       - package: DirectCore
       - package: DirectCapture
+  CabinDirectStorePrepUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - StorePrepUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX).store-prep-ui-tests
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: CabinDirect
+    dependencies:
+      - target: CabinDirect
 schemes:
   CabinDirect:
     build:
       targets:
         CabinDirect: all
+    run:
+      config: Debug
+  CabinDirectStorePrep:
+    build:
+      targets:
+        CabinDirect: all
+        CabinDirectStorePrepUITests: [test]
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - name: CabinDirectStorePrepUITests
+          parallelizable: false
+          randomExecutionOrder: false
     run:
       config: Debug
   TeslaCompanion:
