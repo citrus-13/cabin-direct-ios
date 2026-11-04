@@ -20,7 +20,6 @@ func run(_ name: String, _ body: () throws -> Void) {
 run("Privacy defaults and settings roundtrip") {
     let settings = try DirectSettings().validated()
     check(settings.lyricMode == .mirror, "OCR is opt-in")
-    check(!settings.onlineLyrics, "External lyrics lookup is opt-in")
     let decoded = try JSONDecoder().decode(DirectSettings.self, from: JSONEncoder().encode(settings))
     check(decoded == settings, "Settings Codable roundtrip")
 }
@@ -42,21 +41,17 @@ run("ROI and port boundaries") {
     edge.port = .max; _ = try edge.validated()
 }
 
-run("Synthetic VIN and explicit media units") {
-    var settings = DirectSettings()
-    settings.lyricMode = .teslaMedia; settings.vin = " abc12345678901234 "
-    rejects("Unconfirmed media units rejected") { _ = try settings.validated() }
-    for unit in ["seconds", "milliseconds"] {
-        settings.mediaTimeUnit = unit
-        let clean = try settings.validated()
-        check(clean.vin == "ABC12345678901234", "VIN normalized")
+run("V1 settings discard legacy vehicle access and unknown modes") {
+    for value in ["teslaMedia", "future-mode"] {
+        let legacy = Data("{\"lyricMode\":\"\(value)\",\"vin\":\"SYNTHETIC-OLD-DATA\",\"onlineLyrics\":true}".utf8)
+        let settings = try JSONDecoder().decode(DirectSettings.self, from: legacy).validated()
+        check(settings.lyricMode == .mirror, "Removed modes fall back to screen sharing")
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as! [String: Any]
+        check(encoded["vin"] == nil && encoded["onlineLyrics"] == nil && encoded["mediaTimeUnit"] == nil, "Old vehicle/network fields are not retained")
     }
-    for invalid in ["", "ABC123", "ABC123456789012345", "IBC12345678901234", "OBC12345678901234", "QBC12345678901234", "ABC1234567890123é"] {
-        settings.vin = invalid
-        rejects("Malformed synthetic VIN rejected") { _ = try settings.validated() }
-    }
-    settings.vin = "ABC12345678901234"; settings.mediaTimeUnit = "minutes"
-    rejects("Unknown time unit rejected") { _ = try settings.validated() }
+    let minimal = try JSONDecoder().decode(DirectSettings.self, from: Data("{}".utf8)).validated()
+    check(minimal == DirectSettings(), "Missing optional configuration has safe defaults")
+    check(DirectLyricMode.allCases.count == 2, "Only two V1 display modes are exposed")
 }
 
 run("CSPRNG session shape, rotation, TTL and Codable without secret output") {
@@ -85,6 +80,48 @@ run("Private IPv4 strict syntax and ranges") {
     for address in ["172.15.1.1", "172.32.0.1", "127.0.0.1", "8.8.8.8", "169.254.1.1", "192.168.0.256", "192.168.-1.2", "10.0.0", "10.0.0.1.2", "10..0.1", "10.0.0.1 ", "+10.0.0.1", "0x0a.0.0.1", "10.0.0.1:8787", "localhost", "::1"] {
         check(!DirectNetworkAddresses.privateIPv4(address), "Non-private/malformed address rejected")
     }
+}
+
+run("IPv6 literal discovery and browser URL formatting") {
+    for value in ["fd12:3456::1", "fc00::1", "2001:db8::1234", "2a01:abcd:1234::2"] {
+        check(DirectNetworkAddresses.localIPv6(value), "Unscoped local-interface IPv6 unicast shape accepted")
+        check(DirectNetworkAddresses.url(address: value, port: 8787) == "http://[\(value)]:8787", "IPv6 URLs use brackets")
+    }
+    for value in ["::", "::1", "ff02::1", "fe80::1", "fe80::1%en0", "::ffff:192.168.1.1", "2001:db8::1:bad::2", "example.test", "[fd00::1]", "fd00::1/path"] {
+        check(!DirectNetworkAddresses.localIPv6(value), "Unsupported/scoped/malformed URL address omitted")
+        check(DirectNetworkAddresses.url(address: value, port: 8787) == nil, "No guessed or unsafe URL")
+    }
+    check(DirectNetworkAddresses.url(address: "192.168.1.2", port: 8787) == "http://192.168.1.2:8787", "IPv4 format remains compatible")
+    check(DirectNetworkAddresses.url(address: "8.8.8.8", port: 8787) == nil, "Public IPv4 not advertised")
+    check(DirectNetworkAddresses.url(address: "192.168.1.2", port: 0) == nil, "No URL before listener port is assigned")
+    let urls = DirectNetworkAddresses.urls(addresses: ["fd00::1", "192.168.1.2", "fd00::1", "bad"], port: 8787)
+    check(urls.count == 2, "Discovery URLs are bounded to valid, unique literals")
+}
+
+run("Network transitions require a new user session instead of stale IPv6 advertisements") {
+    let first = DirectInterfaceAddress(interface: "en0", address: "2001:db8::1")
+    let second = DirectInterfaceAddress(interface: "en0", address: "2001:db8::2")
+    let ipv4 = DirectInterfaceAddress(interface: "en0", address: "192.168.1.20")
+    check(DirectNetworkAddresses.matches(initial: [first, ipv4], current: [ipv4, first]), "Enumeration order does not change the network")
+    check(!DirectNetworkAddresses.matches(initial: [first], current: [second]), "Rotated IPv6 cannot be advertised against an old allowlist")
+    check(!DirectNetworkAddresses.matches(initial: [ipv4], current: [first, ipv4]), "New interface address requires restart")
+    check(!DirectNetworkAddresses.matches(initial: [first], current: []), "Lost network requires restart")
+    check(!DirectNetworkAddresses.matches(initial: [], current: []), "No network is not a valid session")
+}
+
+run("Stop requests are current-session scoped and expire without affecting future sessions") {
+    let now = 1_800_000_000.0
+    let session = try DirectBroadcastSession.fresh(settings: DirectSettings(), now: now)
+    let valid = DirectStopRequest(sessionID: session.id, requestedAt: now + 1)
+    check(valid.matches(session, now: now + 2), "Current request accepted")
+    check(!valid.matches(session, now: now + 32), "Stale request rejected")
+    check(!valid.matches(session, now: session.expiresAt), "Expired session rejected")
+    check(!DirectStopRequest(sessionID: "different-session", requestedAt: now + 1).matches(session, now: now + 2), "Different session rejected")
+    check(!DirectStopRequest(sessionID: session.id, requestedAt: now - 1).matches(session, now: now + 2), "Request older than session rejected")
+    check(!DirectStopRequest(sessionID: session.id, requestedAt: now + 20).matches(session, now: now + 2), "Future request rejected")
+    check(!DirectStopRequest(sessionID: session.id, requestedAt: .nan).matches(session, now: now + 2), "Nonfinite request rejected")
+    let next = try DirectBroadcastSession.fresh(settings: DirectSettings(), now: now + 3)
+    check(!valid.matches(next, now: now + 4), "Old request cannot stop next session")
 }
 
 run("Queued old observations rejected across pause/resume") {

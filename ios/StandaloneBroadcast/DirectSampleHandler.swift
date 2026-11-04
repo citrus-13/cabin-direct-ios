@@ -2,7 +2,6 @@ import ReplayKit
 import ImageIO
 import DirectCore
 import DirectCapture
-import TeslaBLE
 
 final class DirectSampleHandler: RPBroadcastSampleHandler {
     private let lock = NSLock()
@@ -41,23 +40,20 @@ private final class DirectBroadcastRuntime {
     private let queueKey = DispatchSpecificKey<UInt8>()
     private let server: LocalHTTPServer
     private let onFailure: (Error) -> Void
+    private let networkAddresses: [DirectInterfaceAddress]
     private var capture: CapturePipeline?
-    private var ble: NativeTeslaMediaClient?
-    private var lyrics: DirectLyricsClient?
     private var timer: DispatchSourceTimer?
     private var state = LocalPublicState()
     private var running = false
     private var paused = false
     private var listenerReady = false
     private var actualPort: UInt16 = 0
-    private var identity = ""
-    private var media: TeslaMediaTrack?
-    private var timeline: DirectLyricTimeline?
     private var observations = DirectObservationGate(acceptedAfter: Date().timeIntervalSince1970)
-    private var mediaGeneration = UUID()
 
     init(session: DirectBroadcastSession, onFailure: @escaping (Error) -> Void) throws {
         self.session = session; self.onFailure = onFailure
+        networkAddresses = DirectNetworkAddresses.current()
+        guard !networkAddresses.isEmpty else { throw DemoError.message("没有可用的局域网地址。先连接自己的 Wi-Fi 或热点，再启动广播。") }
         queue.setSpecific(key: queueKey, value: 1)
         var assets: [String: LocalHTTPAsset] = [:]
         for (file, route, type) in [("index.html", "/", "text/html; charset=utf-8"),
@@ -71,7 +67,8 @@ private final class DirectBroadcastRuntime {
             assets[route] = LocalHTTPAsset(data: data, contentType: type)
         }
         server = LocalHTTPServer(configuration: .init(token: session.token, pairingCode: session.pairingCode,
-                                                     expiresAt: session.expiresAt), assets: assets)
+            expiresAt: session.expiresAt,
+            allowedIPv6Hosts: networkAddresses.map(\.address).filter(DirectNetworkAddresses.localIPv6)), assets: assets)
     }
 
     func start() {
@@ -80,7 +77,7 @@ private final class DirectBroadcastRuntime {
             self.running = true
             let settings = self.session.settings
             self.state = LocalPublicState(lyricState: settings.lyricMode == .mirror ? "disabled" : "waiting",
-                                           source: settings.lyricMode == .teslaMedia ? "tesla-ble" : "visible-screen",
+                                           source: "visible-screen",
                                            message: "正在启动手机内置服务；等待首帧。")
             self.capture = CapturePipeline(maxLongEdge: 960, maxShortEdge: 540, maxFPS: 8,
                 ocrEnabled: settings.lyricMode == .visibleText,
@@ -99,7 +96,6 @@ private final class DirectBroadcastRuntime {
             timer.schedule(deadline: .now(), repeating: 1)
             timer.setEventHandler { [weak self] in self?.tick() }
             self.timer = timer; timer.resume()
-            if settings.lyricMode == .teslaMedia { self.startMedia() }
         }
     }
 
@@ -138,12 +134,6 @@ private final class DirectBroadcastRuntime {
             self.paused = value
             self.observations.advance(to: Date().timeIntervalSince1970)
             self.capture?.setPaused(value)
-            if value {
-                self.mediaGeneration = UUID()
-                self.ble?.stop(); self.ble = nil
-                self.lyrics?.stop(); self.lyrics = nil
-                self.media = nil; self.timeline = nil; self.identity = ""
-            } else if self.session.settings.lyricMode == .teslaMedia { self.startMedia() }
             self.state.captureState = value ? "paused" : "waiting"
             self.state.lyricState = value ? "paused" : (self.session.settings.lyricMode == .mirror ? "disabled" : "waiting")
             self.state.lyricLines = []; self.state.lyricUpdatedAt = 0
@@ -154,65 +144,17 @@ private final class DirectBroadcastRuntime {
         }
     }
 
-    private func startMedia() {
-        let generation = UUID()
-        mediaGeneration = generation
-        let settings = session.settings
-        let keyStore = TeslaKeyStore(accessGroup: Bundle.main.object(forInfoDictionaryKey: "TCKeychainAccessGroup") as? String,
-                                    tag: "media-monitor." + settings.vin)
-        do {
-            guard try keyStore.hasKey() else { state.message = "没有本机媒体钥匙；不会自动配对或生成钥匙。"; return }
-        } catch { state.message = "钥匙串读取失败，停止媒体读取。"; return }
-        let client = NativeTeslaMediaClient(vin: settings.vin, keyStore: keyStore,
-            timeUnit: settings.mediaTimeUnit == "milliseconds" ? .milliseconds : .seconds,
-            onStatus: { [weak self] message in self?.queue.async {
-                guard let self, self.running, !self.paused, self.mediaGeneration == generation else { return }
-                self.state.message = message; self.publish()
-            } }, onMedia: { [weak self] track in self?.queue.async {
-                guard let self, self.mediaGeneration == generation else { return }; self.receiveMedia(track)
-            } })
-        ble = client
-        if settings.onlineLyrics { lyrics = DirectLyricsClient() }
-        client.startReading()
-    }
-
-    private func receiveMedia(_ track: TeslaMediaTrack) {
-        guard running, !paused else { return }
-        media = track
-        let next = (track.title ?? "") + "\u{1f}" + (track.artist ?? "") + "\u{1f}" + String((track.duration ?? -1).rounded())
-        guard next != identity else { return }
-        identity = next; timeline = nil
-        lyrics?.cancel()
-        state.lyricLines = []; state.lyricUpdatedAt = 0
-        state.message = [track.title, track.artist].compactMap { $0 }.joined(separator: " · ")
-        guard let lyrics else { state.lyricState = "disabled"; publish(); return }
-        state.lyricState = "looking-up"; publish()
-        let generation = mediaGeneration
-        lyrics.lookup(title: track.title ?? "", artist: track.artist ?? "", duration: track.duration) { [weak self] result in
-            self?.queue.async {
-                guard let self, self.running, !self.paused, self.mediaGeneration == generation, self.identity == next else { return }
-                switch result {
-                case .success(let value): self.timeline = value; self.state.lyricState = "synced"
-                case .failure(let error): self.state.lyricState = "unavailable"; self.state.message = error.localizedDescription
-                }
-                self.publish()
-            }
-        }
-    }
-
     private func tick() {
         guard running else { return }
         let now = Date().timeIntervalSince1970
         guard now < session.expiresAt else { fail(DemoError.message("广播会话已达到 8 小时上限，请重新开始。")); return }
-        if !paused, session.settings.lyricMode == .teslaMedia, let media, let position = media.position,
-           let playing = media.playing, position.isFinite, position >= 0,
-           now >= media.observedAt, now - media.observedAt < 6, let timeline {
-            let current = position + (playing ? now - media.observedAt : 0)
-            state.lyricLines = timeline.visible(at: min(media.duration ?? current, current))
-            state.lyricUpdatedAt = now
-            state.lyricState = "synced"
-        } else if session.settings.lyricMode == .teslaMedia {
-            state.lyricLines = []; state.lyricUpdatedAt = 0
+        guard DirectNetworkAddresses.matches(initial: networkAddresses, current: DirectNetworkAddresses.current()) else {
+            fail(DemoError.message("局域网地址已改变，共享已结束。请确认受信任网络后重新启动广播。")); return
+        }
+        if DirectSessionStore.stopRequested(for: session) {
+            stopOnQueue(message: "你已在 App 中结束共享，接收服务与临时凭据已失效。")
+            onFailure(DemoError.message("共享已由你结束。"))
+            return
         }
         publish()
     }
@@ -224,14 +166,14 @@ private final class DirectBroadcastRuntime {
         let statusState = paused ? "paused" : (state.captureState == "live" ? (freshFrame ? "broadcasting" : "stale") : "waiting")
         let message = statusState == "stale" ? "服务仍在运行，但画面超过 4 秒没有更新；接收端已隐藏旧内容。" : state.message
         DirectSessionStore.setStatus(.init(sessionID: session.id, state: listenerReady ? statusState : "starting",
-            message: message, addresses: listenerReady ? DirectNetworkAddresses.current().map(\.address) : [],
+            message: message, addresses: listenerReady ? networkAddresses.map(\.address) : [],
             port: actualPort, frames: state.sequence, updatedAt: Date().timeIntervalSince1970))
     }
 
     private func fail(_ error: Error) {
         queue.async {
             guard self.running else { return }
-            self.stopOnQueue(message: "广播发生错误，接收服务已停止。")
+            self.stopOnQueue(message: "共享已结束：\(String(error.localizedDescription.prefix(300)))")
             self.onFailure(error)
         }
     }
@@ -241,15 +183,15 @@ private final class DirectBroadcastRuntime {
         if DispatchQueue.getSpecific(key: queueKey) != nil { cleanup() } else { queue.sync(execute: cleanup) }
     }
     private func stopOnQueue(message: String) {
+        guard running else { return }
         running = false; listenerReady = false
         timer?.cancel(); timer = nil
         capture?.stop(); capture = nil
-        ble?.stop(); ble = nil
-        lyrics?.stop(); lyrics = nil
-        timeline = nil; media = nil
-        server.updateFrame(nil); server.stop()
-        DirectSessionStore.invalidateSession(matching: session.id)
-        DirectSessionStore.setStatus(.init(sessionID: session.id, state: "stopped", message: message,
-            addresses: [], port: 0, frames: state.sequence, updatedAt: Date().timeIntervalSince1970))
+        let sessionID = session.id, frames = state.sequence
+        server.updateFrame(nil)
+        server.stop {
+            // A terminal shared status is an acknowledgement, not merely an enqueued request.
+            DirectSessionStore.finishSession(matching: sessionID, message: message, frames: frames)
+        }
     }
 }

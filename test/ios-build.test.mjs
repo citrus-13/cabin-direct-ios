@@ -16,21 +16,28 @@ fs.appendFileSync(process.env.FIXTURE_TRACE, JSON.stringify({tool,args,developer
 function put(file, value) { fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, typeof value==='string' ? value : JSON.stringify(value)); }
 if (tool==='xcodegen') {
   if(process.env.FIXTURE_GENERATE_FAIL) process.exit(7);
-  const objects={root:{isa:'PBXProject',targets:['app','ext'],packageReferences:['p1','p2','p3']},
-    app:{name:'CabinDirect',productType:'com.apple.product-type.application'},
-    ext:{name:'DirectBroadcastExtension',productType:'com.apple.product-type.app-extension',buildPhases:['resources']},
-    resources:{isa:'PBXResourcesBuildPhase',files:['webBuild']},webBuild:{fileRef:'web'},
+  const objects={root:{isa:'PBXProject',targets:['app','ext'],packageReferences:['p1','p2']},
+    app:{name:'CabinDirect',productType:'com.apple.product-type.application',buildPhases:['resources'],packageProductDependencies:['core']},
+    ext:{name:'DirectBroadcastExtension',productType:'com.apple.product-type.app-extension',buildPhases:['resources'],packageProductDependencies:['core','capture']},
+    core:{isa:'XCSwiftPackageProductDependency',productName:process.env.FIXTURE_BAD_PRODUCT?'TeslaBLE':'DirectCore'},
+    capture:{isa:'XCSwiftPackageProductDependency',productName:'DirectCapture'},
+    resources:{isa:'PBXResourcesBuildPhase',files:['webBuild','privacyBuild','licenseBuild','noticeBuild']},webBuild:{fileRef:'web'},
+    privacyBuild:{fileRef:'privacy'},privacy:{path:'PrivacyInfo.xcprivacy'},licenseBuild:{fileRef:'license'},license:{path:'../LICENSE'},noticeBuild:{fileRef:'notice'},notice:{path:'../NOTICE'},
     web:{path:process.env.FIXTURE_BAD_RESOURCE?'WrongWeb':'StandaloneWeb',lastKnownFileType:'folder'},
     p1:{isa:'XCLocalSwiftPackageReference',relativePath:process.env.FIXTURE_BAD_PACKAGE?'../DirectCore':'DirectCore'},
-    p2:{isa:'XCLocalSwiftPackageReference',relativePath:'DirectCapture'},p3:{isa:'XCLocalSwiftPackageReference',relativePath:'TeslaBLE'}};
+    p2:{isa:'XCLocalSwiftPackageReference',relativePath:'DirectCapture'}};
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/project.pbxproj'), {objects,rootObject:'root'});
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/xcshareddata/xcschemes/CabinDirect.xcscheme'), '<Scheme/>');
-  const common={TCAppGroupIdentifier:'group.$(DIRECT_APP_BUNDLE_PREFIX)',TCKeychainAccessGroup:'$(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media'};
+  const common={TCAppGroupIdentifier:'group.$(DIRECT_APP_BUNDLE_PREFIX)',NSLocalNetworkUsageDescription:'Connect a browser on your trusted local network.'};
+  if(process.env.FIXTURE_BAD_PERMISSION) common.NSBluetoothAlwaysUsageDescription='Not allowed in V1';
   put(path.join(root,'ios/Config/Direct-App-Info.plist'), common);
   put(path.join(root,'ios/Config/Direct-Broadcast-Info.plist'), {...common,NSExtension:{NSExtensionPointIdentifier:'com.apple.broadcast-services-upload',NSExtensionPrincipalClass:'$(PRODUCT_MODULE_NAME).DirectSampleHandler',RPBroadcastProcessMode:'RPBroadcastProcessModeSampleBuffer'}});
-  const entitlements={'com.apple.security.application-groups':[common.TCAppGroupIdentifier],'keychain-access-groups':[common.TCKeychainAccessGroup]};
+  const entitlements={'com.apple.security.application-groups':[common.TCAppGroupIdentifier]};
+  if(process.env.FIXTURE_BAD_KEYCHAIN) entitlements['keychain-access-groups']=['forbidden-in-v1'];
   put(path.join(root,'ios/Config/Direct-App.entitlements'),entitlements);
   put(path.join(root,'ios/Config/Direct-Broadcast.entitlements'),process.env.FIXTURE_BAD_ENTITLEMENT?{}:entitlements);
+  put(path.join(root,'ios/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:!!process.env.FIXTURE_BAD_PRIVACY,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[]});
+  put(path.join(root,'ios/Privacy/Broadcast/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:false,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:[process.env.FIXTURE_BAD_API_REASON?'WRONG.1':'35F9.1']}]});
 } else if(tool==='plutil') {
   if(process.env.FIXTURE_INVALID_PLIST) { console.error('Simulated invalid plist'); process.exit(1); }
   process.stdout.write(fs.readFileSync(args.at(-1),'utf8'));
@@ -43,6 +50,8 @@ else if(tool==='xcrun') {
   if(process.env.FIXTURE_BUILD_MODE!=='missing-product') {
     const app=path.join(args[args.indexOf('-derivedDataPath')+1],'Build/Products/Debug-iphoneos/CabinDirect.app');
     for(const name of ['CabinDirect','Info.plist','PlugIns/DirectBroadcastExtension.appex/DirectBroadcastExtension','PlugIns/DirectBroadcastExtension.appex/Info.plist']) put(path.join(app,name),'SIMULATED NOT AN IOS BINARY');
+    put(path.join(app,'PrivacyInfo.xcprivacy'),process.env.FIXTURE_BAD_PACKAGED_PRIVACY ? '{}' : fs.readFileSync(path.join(root,'ios/PrivacyInfo.xcprivacy'),'utf8'));
+    put(path.join(app,'PlugIns/DirectBroadcastExtension.appex/PrivacyInfo.xcprivacy'),fs.readFileSync(path.join(root,'ios/Privacy/Broadcast/PrivacyInfo.xcprivacy'),'utf8'));
   }
 }
 `;
@@ -54,7 +63,7 @@ function fixture(extra = {}) {
   const repo = path.join(root, 'repo'), work = path.join(root, 'work'), bin = path.join(root, 'bin');
   mkdirSync(path.join(repo, 'scripts'), { recursive: true }); mkdirSync(bin);
   copyFileSync(productionScript, path.join(repo, 'scripts/build-ios.mjs'));
-  for (const name of ['DirectCore', 'DirectCapture', 'TeslaBLE']) {
+  for (const name of ['DirectCore', 'DirectCapture']) {
     mkdirSync(path.join(repo, 'ios', name), { recursive: true });
     writeFileSync(path.join(repo, 'ios', name, 'Package.swift'), '// simulated fixture');
   }
@@ -136,7 +145,8 @@ test('[SIMULATED] generation failure is distinct from compilation failure', () =
   assert.equal(result.calls.length, 1);
 });
 
-for (const flag of ['FIXTURE_BAD_RESOURCE', 'FIXTURE_BAD_PACKAGE', 'FIXTURE_BAD_ENTITLEMENT', 'FIXTURE_INVALID_PLIST']) {
+for (const flag of ['FIXTURE_BAD_RESOURCE', 'FIXTURE_BAD_PACKAGE', 'FIXTURE_BAD_ENTITLEMENT', 'FIXTURE_INVALID_PLIST',
+  'FIXTURE_BAD_PRODUCT', 'FIXTURE_BAD_PERMISSION', 'FIXTURE_BAD_KEYCHAIN', 'FIXTURE_BAD_PRIVACY', 'FIXTURE_BAD_API_REASON']) {
   test(`[SIMULATED] structural validation rejects ${flag}`, () => {
     const result = fixture({ [flag]: '1' }).run();
     assert.equal(result.status, 1); assert.equal(result.report.state, 'project_validation_failed');
@@ -164,4 +174,14 @@ test('[SIMULATED] unsafe work paths are rejected before tool invocation includin
     const result = f.run();
     assert.equal(result.status, 1); assert.equal(result.calls.length, 0); assert.equal(result.report, null);
   }
+});
+
+test('[SIMULATED] compiler success with invalid packaged privacy never counts as a successful product', () => {
+  const result = fixture({ FIXTURE_BAD_PACKAGED_PRIVACY: '1' }).run();
+  assert.equal(result.status, 1);
+  assert.equal(result.report.state, 'packaged_privacy_invalid');
+  assert.equal(result.report.build_command_succeeded, true);
+  assert.equal(result.report.unsigned_product_present, true);
+  assert.equal(result.report.packaged_privacy_manifests_verified, false);
+  assert.equal(result.report.full_iOS_build, false);
 });

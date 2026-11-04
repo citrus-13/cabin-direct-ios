@@ -30,8 +30,10 @@ const env = { ...process.env, TMPDIR: path.join(work, 'tmp'),
 const report = {
   schema_version: 1, evidence_kind: simulated ? 'simulated' : 'actual', preflight_only: preflightOnly,
   state: 'starting', passed: false, project_generated: false, project_validated: false,
+  build_profile: 'screen-companion-v1', v1_profile_validated: false,
   full_xcode_available: false, iphoneos_sdk_available: false, full_iOS_build: false,
   build_command_succeeded: false, unsigned_product_present: false,
+  packaged_privacy_manifests_verified: false,
   signing_performed: false, device_test: false, installable_ipa_created: false,
   package_resolution: 'Initial resolution of fixed free dependencies is allowed; skipPackageUpdates avoids unnecessary updates. Canonical project includes legacy build-only WebRTC, not a CabinDirect runtime dependency.',
   artifact_note: 'An unsigned .app is a compile artifact, not an installable IPA or device acceptance.',
@@ -68,6 +70,17 @@ function plist(file, label) {
   requireValue(converted.ok, `${label} is not a valid plist`);
   return JSON.parse(converted.stdout);
 }
+function validatePrivacy(file, expectedAPIs, label) {
+  const privacy = plist(file, label);
+  const normalized = values => Array.isArray(values) ? values.map(value => ({
+    type: value.NSPrivacyAccessedAPIType, reasons: value.NSPrivacyAccessedAPITypeReasons
+  })) : null;
+  requireValue(privacy.NSPrivacyTracking === false && ['NSPrivacyTrackingDomains', 'NSPrivacyCollectedDataTypes']
+    .every(key => Array.isArray(privacy[key]) && privacy[key].length === 0) &&
+    JSON.stringify(normalized(privacy.NSPrivacyAccessedAPITypes)) === JSON.stringify(normalized(expectedAPIs)),
+    'Unexpected privacy declaration; review actual data and API behavior before changing it');
+}
+const capturePrivacyReasons = [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }];
 function validateProject() {
   const pbx = plist(path.join(project, 'project.pbxproj'), 'validate-project-pbx');
   const objects = pbx.objects;
@@ -79,17 +92,23 @@ function validateProject() {
   requireValue(app?.productType === 'com.apple.product-type.application', 'CabinDirect application target missing');
   requireValue(broadcast?.productType === 'com.apple.product-type.app-extension', 'DirectBroadcastExtension target missing');
   requireValue(existsSync(path.join(project, 'xcshareddata/xcschemes/CabinDirect.xcscheme')), 'CabinDirect shared scheme missing');
-  for (const name of ['DirectCore', 'DirectCapture', 'TeslaBLE']) {
+  for (const name of ['DirectCore', 'DirectCapture']) {
     const expected = path.join(repo, 'ios', name);
     requireValue((root.packageReferences || []).some(id => objects[id]?.isa === 'XCLocalSwiftPackageReference' &&
       path.resolve(repo, 'ios', objects[id].relativePath || '') === expected), `Local package reference is not canonical: ${name}`);
     requireValue(existsSync(path.join(expected, 'Package.swift')), `Missing local package manifest: ${name}`);
   }
-  const resources = (broadcast.buildPhases || []).map(id => objects[id]).filter(phase => phase?.isa === 'PBXResourcesBuildPhase');
-  requireValue(resources.some(phase => (phase.files || []).some(id => {
-    const reference = objects[objects[id]?.fileRef];
-    return reference?.path === 'StandaloneWeb' && reference?.lastKnownFileType === 'folder';
-  })), 'StandaloneWeb must be a folder resource in the broadcast extension');
+  for (const [target, allowed] of [[app, ['DirectCore']], [broadcast, ['DirectCore', 'DirectCapture']]]) {
+    const products = (target.packageProductDependencies || []).map(id => objects[id]?.productName).sort();
+    requireValue(JSON.stringify(products) === JSON.stringify(allowed.sort()), `Unexpected package products in ${target.name}`);
+    const resources = (target.buildPhases || []).map(id => objects[id]).filter(phase => phase?.isa === 'PBXResourcesBuildPhase')
+      .flatMap(phase => (phase.files || []).map(id => objects[objects[id]?.fileRef]));
+    requireValue(resources.some(reference => reference?.path === 'StandaloneWeb' && reference?.lastKnownFileType === 'folder'),
+      `StandaloneWeb must be a folder resource in ${target.name}`);
+    for (const resource of ['PrivacyInfo.xcprivacy', 'LICENSE', 'NOTICE']) {
+      requireValue(resources.some(reference => path.basename(reference?.path || '') === resource), `Missing ${resource} in ${target.name}`);
+    }
+  }
   for (const name of ['index.html', 'direct.js', 'direct.css']) {
     const file = path.join(repo, 'ios/StandaloneWeb', name);
     requireValue(existsSync(file) && statSync(file).size > 0, `Missing or empty StandaloneWeb asset: ${name}`);
@@ -100,8 +119,16 @@ function validateProject() {
   const appEntitlements = plist(path.join(config, 'Direct-App.entitlements'), 'validate-app-entitlements');
   const extensionEntitlements = plist(path.join(config, 'Direct-Broadcast.entitlements'), 'validate-extension-entitlements');
   requireValue(appInfo.TCAppGroupIdentifier && appInfo.TCAppGroupIdentifier === extensionInfo.TCAppGroupIdentifier, 'App Group identifiers differ');
-  requireValue(appInfo.TCKeychainAccessGroup && appInfo.TCKeychainAccessGroup === extensionInfo.TCKeychainAccessGroup, 'Keychain groups differ');
-  for (const key of ['com.apple.security.application-groups', 'keychain-access-groups']) {
+  for (const info of [appInfo, extensionInfo]) {
+    requireValue(typeof info.NSLocalNetworkUsageDescription === 'string' && info.NSLocalNetworkUsageDescription.length > 20, 'Local network explanation missing');
+    requireValue(!info.NSBluetoothAlwaysUsageDescription && !info.NSBluetoothPeripheralUsageDescription && !info.TCKeychainAccessGroup,
+      'Vehicle/Bluetooth/shared Keychain configuration must not be present in V1');
+    requireValue(!info.UIBackgroundModes?.length, 'V1 must not request unrelated background modes');
+  }
+  for (const entitlements of [appEntitlements, extensionEntitlements]) {
+    requireValue(Object.keys(entitlements).every(key => key === 'com.apple.security.application-groups'), 'Unexpected V1 entitlement');
+  }
+  for (const key of ['com.apple.security.application-groups']) {
     requireValue(Array.isArray(appEntitlements[key]) && appEntitlements[key].length > 0 &&
       JSON.stringify(appEntitlements[key]) === JSON.stringify(extensionEntitlements[key]), `Entitlement mismatch: ${key}`);
   }
@@ -109,6 +136,13 @@ function validateProject() {
   requireValue(extension?.NSExtensionPointIdentifier === 'com.apple.broadcast-services-upload' &&
     extension?.RPBroadcastProcessMode === 'RPBroadcastProcessModeSampleBuffer' &&
     extension?.NSExtensionPrincipalClass?.endsWith('.DirectSampleHandler'), 'ReplayKit sample-buffer configuration invalid');
+  for (const [file, expectedAPIs] of [
+    ['PrivacyInfo.xcprivacy', []],
+    ['Privacy/Broadcast/PrivacyInfo.xcprivacy', capturePrivacyReasons]
+  ]) {
+    validatePrivacy(path.join(repo, 'ios', file), expectedAPIs, 'validate-privacy-' + (expectedAPIs.length ? 'broadcast' : 'app'));
+  }
+  report.v1_profile_validated = true;
   report.project_validated = true; save();
 }
 
@@ -159,10 +193,18 @@ if (!execute('generate-project', 'xcodegen', ['--spec', 'ios/project.yml', '--pr
       report.unsigned_product_present = [path.join(app, 'CabinDirect'), path.join(app, 'Info.plist'),
         path.join(extension, 'DirectBroadcastExtension'), path.join(extension, 'Info.plist')].every(existsSync);
       if (report.unsigned_product_present) { report.artifacts.unsigned_app = app; report.artifacts.broadcast_extension = extension; }
-      report.full_iOS_build = build.ok && report.unsigned_product_present && !simulated;
-      report.passed = build.ok && report.unsigned_product_present;
-      finish(!build.ok ? 'ios_compilation_failed' : !report.unsigned_product_present ? 'build_product_missing' : simulated ? 'simulated_build_complete' : 'unsigned_ios_build_complete',
-        !build.ok ? 'Unsigned iOS compilation failed; inspect build log.' : !report.unsigned_product_present ? 'Build command succeeded but expected app/extension artifacts are missing.' :
+      let privacyError = '';
+      if (build.ok && report.unsigned_product_present) {
+        try {
+          validatePrivacy(path.join(app, 'PrivacyInfo.xcprivacy'), [], 'validate-packaged-app-privacy');
+          validatePrivacy(path.join(extension, 'PrivacyInfo.xcprivacy'), capturePrivacyReasons, 'validate-packaged-extension-privacy');
+          report.packaged_privacy_manifests_verified = true;
+        } catch (error) { privacyError = error.message; }
+      }
+      report.full_iOS_build = build.ok && report.unsigned_product_present && report.packaged_privacy_manifests_verified && !simulated;
+      report.passed = build.ok && report.unsigned_product_present && report.packaged_privacy_manifests_verified;
+      finish(!build.ok ? 'ios_compilation_failed' : !report.unsigned_product_present ? 'build_product_missing' : privacyError ? 'packaged_privacy_invalid' : simulated ? 'simulated_build_complete' : 'unsigned_ios_build_complete',
+        !build.ok ? 'Unsigned iOS compilation failed; inspect build log.' : !report.unsigned_product_present ? 'Build command succeeded but expected app/extension artifacts are missing.' : privacyError ? privacyError :
           simulated ? 'SIMULATED CLI test only: no actual iOS build is established.' : 'Unsigned generic iOS build passed. App/extension artifacts exist; no installable IPA, signing or device validation.',
         report.passed ? 0 : 1);
     }

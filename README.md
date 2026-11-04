@@ -1,32 +1,41 @@
-# Cabin Direct — experimental iPhone-local screen and lyrics companion
+# Cabin Direct — V1 local screen companion
 
-An independently implemented, developer-stage screen companion for a parked Tesla browser. The `CabinDirect` iOS app and ReplayKit broadcast extension contain a native local HTTP/MJPEG server, bounded JPEG capture, optional on-device visible-text recognition, and an experimental read-only Tesla media protocol client.
+Version **0.4.0** is a developer-stage, source-only iPhone app and ReplayKit broadcast extension for sharing permitted visible content with a user-owned browser on a trusted local network. A parked-car browser is one possible receiver, not a verified compatibility claim. The native runtime needs no Mac, Node server, account, cloud relay or paid API.
 
-**Not yet a validated iPhone/Tesla product.** Local macOS native checks and source tests do not establish iOS signing, installation, ReplayKit/Bluetooth extension behavior, hotspot reachability, vehicle enrollment or music-platform compatibility. Check the actual unsigned iOS workflow result separately. There is no signed, installable IPA, device acceptance claim, paid cloud service or DRM bypass.
+**Not App Store approved, signed, installed or device-validated.** The previously recorded unsigned iOS compile for `b2b8cb2` covers the earlier prototype only. Actual compilation of any V1 revision requires its own [recorded workflow result](https://github.com/citrus-13/cabin-direct-ios/actions/workflows/cabin-public-build.yml); verify the exact commit, actual compiler output and packaged privacy checks. There is no signed IPA, public device-evidence screenshot, real iPhone / Tesla acceptance result, IPv6-only network proof or thermal endurance proof. A green source test or old compile cannot establish those outcomes.
 
-## Runtime design
+## Native app flow
 
-- The broadcast extension owns the local server and capture pipeline. The standalone runtime does not require a Mac, Node server, WebRTC package or cloud relay.
-- Local HTTP transport is unencrypted: use only a trusted personal hotspot/Wi-Fi. Pairing lasts 120 seconds with five wrong attempts maximum; the viewer uses a session cookie rather than credential-bearing URLs.
-- Screen images preserve aspect/orientation, never upscale, and are capped at 960/540 long/short edges and 8 fps. Slow viewers receive the newest frame rather than queued history. Stale, paused and disconnected imagery is hidden.
-- OCR is optional and off by default. It recognizes only visible text in a selected screen region; it is not a universal background music API or reliable highlighted-lyric timing detector.
-- Optional Tesla media reads use a reduced official-protocol adaptation, CryptoKit and shared Keychain storage. Reading never generates a key. Monitor-key enrollment requires a separate explicit owner gesture and physical vehicle/NFC approval. No owner/driver fallback, wake, driving, playback or other vehicle-control request is exposed.
-- Optional LRCLIB queries require opt-in and send only song metadata, not VIN, screen, credentials or OCR text. Returned lyrics are not included in this source distribution.
-- Audio remains with the user's existing player/Bluetooth route. Protected streaming content is outside the support promise.
+- **Connect:** network guidance, current session address and code, an original foreground-only sample, and redacted runtime diagnostics.
+- **Share:** save settings, optionally enable on-device visible-text recognition and adjust its region, acknowledge screen/notification exposure, then personally operate the genuine iOS system broadcast picker. The app does not programmatically start capture.
+- **Help:** privacy, connection troubleshooting, audio behavior and compatibility limits. The existing player and existing audio route remain responsible for sound; V1 neither captures nor relays microphone or app audio.
 
-The earlier Node/WebRTC validation harness is retained for regression testing and uses a different runtime path. Its fixed WebRTC dependency may be resolved while building the shared Xcode project, but is not a `CabinDirect` app dependency.
+For a recording-free check, connect the iPhone and a **second user-owned browser device** to the same trusted Wi-Fi / hotspot. Keep Cabin Direct in the foreground, start its original sample, enter the displayed address in that other browser and pair with the separately displayed six-digit code. The sample sends self-rendered 960 × 540 JPEG cards through the **same DirectCore server, pairing, state and image transport** used by real broadcasts. It advances at no more than 1 fps, is clearly labeled “DEMO / original sample / not your phone screen,” expires within ten minutes and stops when the app is not active. It requires no Tesla and provides no evidence of screen capture or vehicle compatibility.
 
-## Free, unsigned iOS compilation
+For real sharing, use **Share**, save settings, acknowledge the privacy notice and confirm in iOS's broadcast panel. Return to the app for the current address/code, connect your browser, then open content that permits screen recording. Moving the main app into the background **does not stop the real ReplayKit extension**. Keep the source visible; lock-screen continuity is not promised.
 
-The manual workflow in `.github/workflows/cabin-public-build.yml` is restricted to a public repository owned by the approved maintainer. It uses the **standard** `xcode-27` GitHub-hosted runner, read-only permissions and a 30-minute limit. There are no push/PR/scheduled triggers, paid larger runners, Actions caches, artifact uploads, release publication or Apple-account secrets.
+## Transport, privacy and stopping
 
-Run it from **Actions → Cabin Direct public unsigned iOS compile → Run workflow**. The actual compiler result precedes source tests. Logs and the job summary record source commit, compiler diagnostics and hashes of the report/app/extension executables.
+**Local HTTP is unencrypted.** Use only a network you control; pairing is access control, not encryption. Do not expose the listener to the public internet or forward its port. Shared messages, notifications, screen content and optional OCR text can be sensitive. No universal music-app, DRM-video, background-music or locked-screen support is claimed.
 
-Build products are ephemeral and are **not uploaded**. A successful unsigned build is compile evidence, not an installable IPA, permanent signature, runtime success or a complete car test. Public standard-runner pricing is governed by [GitHub's current rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job); this project does not enable a paid fallback.
+- First pairing is limited to **120 seconds**, with at most **five wrong attempts per session**. Successful pairing uses an HttpOnly session cookie; addresses contain neither token nor pairing code. A real broadcast session has an **eight-hour maximum**, while the foreground sample is capped at ten minutes. New browsers after the pairing window need a newly started session.
+- Capture preserves orientation/aspect ratio without upscaling, is bounded to 960/540 long/short edges and at most 8 fps, and retains latest results rather than a recording history. Optional OCR is off by default, stays on-device and recognizes only text visible within the selected region—not background tracks or guaranteed highlighted-lyric timing.
+- Paused, stale or disconnected results are hidden. Listener readiness, heartbeats and encoded-frame counts are not proof that a browser or vehicle received a frame.
+- An explicit app stop requests termination of the **matching** broadcast. The UI remains pending until runtime cleanup is reported. The sample similarly waits for server teardown before permitting a restart. You can also end real capture from the iPhone system recording indicator.
+- Sessions retain their startup interface/address snapshot and advertise those addresses. An interface/address-set change ends the session; inspect the new trusted network, then start and pair again. The app does not change VPN or network settings.
+- If an extension disappears without confirming stop, the UI does **not** infer success from heartbeat expiry. After checking the iPhone system recording state yourself, a confirmation can release only the local UI wait. It does not mark shared state stopped or invalidate old credentials.
 
-## Local developer checks
+V1 has no developer-server collection, tracking, login, remote OCR or network lyrics service. Read the [draft privacy statement](docs/PRIVACY.md) for storage, cookie, clipboard and crash-cleanup limits. Publisher contact details and public policy/support metadata are still required before submission.
 
-Requires Node.js 22+, macOS and XcodeGen 2.42+ for project generation. Full Xcode with an iPhoneOS SDK is required for actual iOS compilation.
+## Shipping scope versus retained research
+
+The `CabinDirect` target depends on DirectCore; `DirectBroadcastExtension` depends on DirectCore and DirectCapture. Neither shipping target includes TeslaBLE, vehicle enrollment, LRCLIB, DirectLyrics, Bluetooth usage descriptions or shared-Keychain permissions. Legacy vehicle settings fall back to screen sharing and do not reactivate vehicle access.
+
+`ios/TeslaBLE/`, `ios/Shared/DirectLyrics.swift` and the vehicle/lyrics bridge remain **research-only source and offline regression material**, not enabled V1 functionality. The older Node/WebRTC harness and its `TeslaCompanion` scheme are separate runtime paths. The shared Xcode project can resolve the legacy WebRTC package; that does not make WebRTC a Cabin Direct runtime dependency. Do not run legacy network/vehicle scripts merely to try the V1 sample.
+
+## Build and local checks
+
+Node.js 22+, macOS and XcodeGen 2.42+ support source checks/project generation. Actual iOS compilation requires full Xcode and an iPhoneOS SDK; Command Line Tools alone are insufficient.
 
 ```sh
 npm ci --ignore-scripts
@@ -37,27 +46,20 @@ CABIN_IOS_WORK_DIR=/absolute/external/ios-build npm run ios:preflight
 CABIN_IOS_WORK_DIR=/absolute/external/ios-build npm run build:ios
 ```
 
-Output directories must be outside this repository. If necessary set `DEVELOPER_DIR=/absolute/Xcode.app/Contents/Developer` per command; the scripts do not change global Xcode selection. XcodeGen's ignored project/configuration files remain at their required `ios/` paths. The build script distinguishes generation, validation, missing SDK, compiler failure and actual unsigned app/extension products. Simulated CLI test reports cannot count as actual iOS builds.
+Keep generated build/report directories outside the repository. Use a per-command `DEVELOPER_DIR` if necessary; scripts do not change global Xcode selection. XcodeGen's ignored project/config files remain at their required `ios/` paths.
 
-For signing later, choose `CabinDirect`, set your own unique bundle prefix and signing team, and verify App Group and shared Keychain provisioning for both targets. Never commit keys, provisioning profiles, Apple login state or device pairing files.
+The manual `.github/workflows/cabin-public-build.yml` workflow is restricted to the approved maintainer's public repository, uses a standard hosted runner with a 30-minute limit and read-only repository permissions, and distinguishes actual unsigned compilation from source tests. It has no push/PR/schedule trigger, paid fallback, artifact upload, release publication, signing or Apple-account secrets. It records revision and bounded build evidence; products are ephemeral, not installable IPA downloads. Starting a workflow or passing source tests is not an actual-build result.
 
-## Installation and renewal are separate
+Signing/provisioning, installing the app and embedded extension, and testing App Group access are separate user-controlled steps. No account registration, purchase, installation utility or VPN setup is required by these source instructions. See the [App Store readiness checklist](docs/APP_STORE_READINESS.md) for missing evidence and metadata; neither source publication nor a successful compile guarantees review acceptance.
 
-Free Apple Personal Team profiles expire after seven days. Periodic refresh/re-signing is required; it is not one permanent installation. Existing unchanged code normally does not need a new GitHub build for each refresh. Any installation/renewal tool is an optional user choice, not a dependency of this app.
+## License, provenance and artwork
 
-SideStore is **not required**. Xcode, AltStore/AltServer and Sideloadly are other possible routes with their own computer, pairing and local-network requirements. Compatibility of this app's broadcast extension, App Group and shared Keychain after re-signing still requires device testing. No renewal tool has been installed or configured by this project. Do not replace an active VPN without user consent.
+Original project source and original sample fixtures are Apache-2.0; third-party material retains its terms. See [LICENSE](LICENSE), [NOTICE](NOTICE), [THIRD_PARTY.md](THIRD_PARTY.md), the retained [Tesla research provenance](ios/TeslaBLE/PROVENANCE.md) and [upstream license](ios/TeslaBLE/LICENSE-TESLA), and [legacy WebRTC notices](ios/App/ThirdPartyNotices.txt). Research notices describe retained source, not shipping permissions or features. Third-party song lyrics are not bundled or licensed by this repository.
 
-## Required parked-device acceptance
+The opaque 1024 × 1024 app icon is original geometric artwork generated by [scripts/make-app-icon.swift](scripts/make-app-icon.swift), without third-party imagery, fonts or product logos. To reproduce a comparison file on macOS:
 
-1. Actual iOS build, personal signing, installation and shared entitlement validation.
-2. Real iPhone broadcast, local browser pairing, rotation, OCR ROI, pause/resume, stale-frame clearing and end-of-session cleanup.
-3. Parked Tesla on normal Wi-Fi, then iPhone personal hotspot: distinguish routing/HTTP restrictions from decoder failures.
-4. Each music app's visible lyrics and capture restrictions. No platform is marked universally passed.
-5. Explicit owner-approved monitor-key enrollment, authenticated media fields and verified timing units, only if that optional path is chosen.
-6. Memory/thermal behavior, calls, lock/unlock, long sessions and renewal recovery. Lock-screen streaming is not guaranteed.
+```sh
+swift scripts/make-app-icon.swift /absolute/external/AppIcon.png
+```
 
-## License and provenance
-
-The project's original source is released under **Apache-2.0**, with the owner's explicit approval. Third-party works retain their original terms; see [LICENSE](LICENSE), [NOTICE](NOTICE), [THIRD_PARTY.md](THIRD_PARTY.md), and the preserved Tesla/WebRTC notices. No private repository history, personal screenshots, account data or proprietary researched-product assets are part of this snapshot.
-
-This project is not affiliated with Tesla, Apple or any music service. Use only while parked; shared screens may contain private messages and notifications.
+The bundled result lives in `ios/AppAssets.xcassets/AppIcon.appiconset/`. Original artwork is not trademark/name clearance. Cabin Direct is not affiliated with Tesla, Apple or any music service; no store listing, pricing promise or commercial approval is established.

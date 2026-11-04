@@ -7,9 +7,11 @@ public struct LocalServerConfiguration {
     public let pairingCode: String
     public let expiresAt: Double
     public let pairingWindow: Double
-    public init(token: String, pairingCode: String, expiresAt: Double, pairingWindow: Double = 120) {
+    public let allowedIPv6Hosts: [String]
+    public init(token: String, pairingCode: String, expiresAt: Double, pairingWindow: Double = 120, allowedIPv6Hosts: [String] = []) {
         self.token = token; self.pairingCode = pairingCode; self.expiresAt = expiresAt
         self.pairingWindow = min(120, max(0, pairingWindow))
+        self.allowedIPv6Hosts = allowedIPv6Hosts
     }
 }
 public struct LocalHTTPAsset {
@@ -63,8 +65,14 @@ public final class LocalHTTPServer {
     private let assets: [String: LocalHTTPAsset]
     private let now: () -> Double
     private let bindToLoopback: Bool
+    private let allowedIPv6: [[UInt8]]
+    private let validIPv6Configuration: Bool
     private let queue = DispatchQueue(label: "CabinDirect.LocalHTTPServer")
     private var listener: NWListener?
+    private var stoppingListener: NWListener?
+    private var stopCallbacks: [() -> Void] = []
+    private var listenerReady = false
+    private var failureCallback: ((Error) -> Void)?
     private var timer: DispatchSourceTimer?
     private var clients: [UUID: Client] = [:]
     private var frame: LocalJPEGFrame?
@@ -81,13 +89,20 @@ public final class LocalHTTPServer {
 
     public init(configuration: LocalServerConfiguration, assets: [String: LocalHTTPAsset], now: @escaping () -> Double = { Date().timeIntervalSince1970 }, bindToLoopback: Bool = false) {
         self.configuration = configuration; self.now = now; self.bindToLoopback = bindToLoopback
+        // Caller supplies actual interface literals, never arbitrary names or URL strings.
+        let normalized = configuration.allowedIPv6Hosts.prefix(16).compactMap(Self.allowedIPv6Bytes)
+        self.allowedIPv6 = normalized
+        self.validIPv6Configuration = configuration.allowedIPv6Hosts.count <= 16 && normalized.count == configuration.allowedIPv6Hosts.count
         self.assets = assets.filter { ["/", "/direct.js", "/direct.css"].contains($0.key) && $0.value.data.count <= 524_288 && !$0.value.contentType.contains("\r") && !$0.value.contentType.contains("\n") }
     }
     public func start(port: UInt16, onReady: @escaping (UInt16) -> Void, onFailure: @escaping (Error) -> Void) {
         queue.async {
-            guard !self.running else { onFailure(self.error("Already started")); return }
+            guard !self.running, self.stoppingListener == nil else { onFailure(self.error("Already started or still stopping")); return }
+            guard self.validIPv6Configuration else { onFailure(self.error("Invalid IPv6 host allowlist")); return }
             let token = Array(self.configuration.token.utf8)
             guard token.count == 43, token.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }), self.configuration.pairingCode.utf8.count == 6, self.configuration.pairingCode.utf8.allSatisfy({ (48...57).contains($0) }), self.configuration.expiresAt.isFinite, self.now() < self.configuration.expiresAt else { onFailure(self.error("Invalid or expired configuration")); return }
+            self.failureCallback = onFailure
+            self.listenerReady = false
             do {
                 let parameters = NWParameters.tcp
                 parameters.allowLocalEndpointReuse = true
@@ -96,10 +111,13 @@ public final class LocalHTTPServer {
                 self.listener = listener; self.startedAt = self.now(); self.wrongAttempts = 0; self.running = true
                 listener.newConnectionHandler = { [weak self] in self?.accept($0) }
                 listener.stateUpdateHandler = { [weak self, weak listener] status in
-                    guard let self else { return }
+                    guard let self, self.running, let listener, self.listener === listener else { return }
                     switch status {
-                    case .ready: if let port = listener?.port { onReady(port.rawValue) }
-                    case .failed(let error): self.stopOnQueue(); onFailure(error)
+                    case .ready:
+                        guard !self.listenerReady, !self.startupTimedOut() else { return }
+                        self.listenerReady = true
+                        if let port = listener.port { onReady(port.rawValue) }
+                    case .failed(let error): self.failOnQueue(error)
                     default: break
                     }
                 }
@@ -107,10 +125,12 @@ public final class LocalHTTPServer {
                 timer.schedule(deadline: .now() + 0.1, repeating: 0.1)
                 timer.setEventHandler { [weak self] in self?.tick() }
                 self.timer = timer; timer.resume(); listener.start(queue: self.queue)
-            } catch { self.stopOnQueue(); onFailure(error) }
+            } catch { self.failOnQueue(error) }
         }
     }
-    public func stop() { queue.async { self.stopOnQueue() } }
+    public func stop(onStopped: (() -> Void)? = nil) {
+        queue.async { self.stopOnQueue(onStopped: onStopped) }
+    }
     public func updateFrame(_ frame: LocalJPEGFrame?) {
         // Coalesce even before dispatch: a fast producer cannot enqueue an unbounded
         // number of retained JPEGs while the networking queue is occupied.
@@ -133,7 +153,7 @@ public final class LocalHTTPServer {
             var safe = state
             safe.captureState = String(safe.captureState.prefix(32)); safe.lyricState = String(safe.lyricState.prefix(32))
             safe.lyricLines = Array(safe.lyricLines.prefix(24)).map { String($0.prefix(200)) }
-            safe.source = ["visible-screen", "tesla-ble"].contains(safe.source) ? safe.source : "visible-screen"
+            safe.source = ["visible-screen", "demo"].contains(safe.source) ? safe.source : "visible-screen"
             safe.message = String(safe.message.prefix(512))
             if !safe.frameUpdatedAt.isFinite { safe.frameUpdatedAt = 0 }
             if !safe.lyricUpdatedAt.isFinite { safe.lyricUpdatedAt = 0 }
@@ -142,9 +162,36 @@ public final class LocalHTTPServer {
         }
     }
     private func error(_ message: String) -> NSError { NSError(domain: "CabinDirect.HTTP", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
-    private func stopOnQueue() {
-        running = false; listener?.cancel(); listener = nil; timer?.cancel(); timer = nil
+    private func stopOnQueue(onStopped: (() -> Void)? = nil) {
+        if let onStopped { stopCallbacks.append(onStopped) }
+        running = false; listenerReady = false; failureCallback = nil
+        timer?.cancel(); timer = nil
         for client in Array(clients.values) { close(client) }; frame = nil
+        if let listener {
+            self.listener = nil; stoppingListener = listener
+            // Keep cleanup alive until Network confirms listener cancellation, including
+            // when the containing runtime releases its last server reference on stop.
+            listener.stateUpdateHandler = { [self] status in
+                guard case .cancelled = status else { return }
+                self.stoppingListener?.stateUpdateHandler = nil
+                self.stoppingListener = nil
+                self.completeStop()
+            }
+            listener.cancel()
+        } else if stoppingListener == nil { completeStop() }
+    }
+    private func completeStop() {
+        let callbacks = stopCallbacks; stopCallbacks.removeAll()
+        for callback in callbacks { callback() }
+    }
+    private func failOnQueue(_ error: Error) {
+        let callback = failureCallback
+        stopOnQueue { callback?(error) }
+    }
+    @discardableResult private func startupTimedOut() -> Bool {
+        guard running, !listenerReady, now() - startedAt >= 10 else { return false }
+        failOnQueue(error("Local listener did not become ready within 10 seconds. Check local-network permission and Wi-Fi/hotspot connection, then restart sharing."))
+        return true
     }
     private func close(_ client: Client) { clients.removeValue(forKey: client.id); client.connection.cancel() }
     private func accept(_ connection: NWConnection) {
@@ -205,7 +252,7 @@ public final class LocalHTTPServer {
             let tail = String(host[host.index(after: end)...]); guard tail.isEmpty || validPort(tail) else { return false }
             var addr = in6_addr(); guard inet_pton(AF_INET6, literal, &addr) == 1 else { return false }
             let bytes = withUnsafeBytes(of: addr) { Array($0) }
-            return bytes == Array(repeating: 0, count: 15) + [1] || bytes[0] & 0xfe == 0xfc || (bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80)
+            return bytes == Array(repeating: 0, count: 15) + [1] || bytes[0] & 0xfe == 0xfc || (bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80) || allowedIPv6.contains(bytes)
         }
         let parts = host.split(separator: ":", omittingEmptySubsequences: false)
         guard parts.count <= 2 else { return false }
@@ -217,6 +264,15 @@ public final class LocalHTTPServer {
     }
     private func validPort(_ value: String) -> Bool {
         let digits = value.dropFirst(); return value.hasPrefix(":" ) && !digits.isEmpty && digits.utf8.allSatisfy({ (48...57).contains($0) }) && UInt16(digits).map { $0 > 0 } == true
+    }
+    private static func allowedIPv6Bytes(_ literal: String) -> [UInt8]? {
+        guard !literal.isEmpty, literal.utf8.count <= 45, !literal.contains("\0") else { return nil }
+        var address = in6_addr()
+        guard inet_pton(AF_INET6, literal, &address) == 1 else { return nil }
+        let bytes = withUnsafeBytes(of: address) { Array($0) }
+        guard bytes.contains(where: { $0 != 0 }), bytes[0] != 0xff,
+              !(bytes.prefix(10).allSatisfy({ $0 == 0 }) && bytes[10] == 0xff && bytes[11] == 0xff) else { return nil }
+        return bytes
     }
     private func equal(_ left: String, _ right: String) -> Bool {
         let a = Array(left.utf8), b = Array(right.utf8)
@@ -246,6 +302,13 @@ public final class LocalHTTPServer {
         guard now() < configuration.expiresAt else { respond(client, 410); return }
         if method == "GET", path == "/health" { respond(client, 200, data: Data("{\"ok\":true}".utf8), type: "application/json"); return }
         if method == "GET", let asset = assets[path] { respond(client, 200, data: asset.data, type: asset.contentType); return }
+        if method == "POST", path == "/api/unpair" {
+            // Browser-local logout only: never revoke the source session or other viewers.
+            // Require an explicit same-origin POST even when the cookie has already expired.
+            guard let host = headers["host"], headers["origin"] == "http://" + host else { respond(client, 403); return }
+            guard body.isEmpty else { respond(client, 400); return }
+            respond(client, 204, extra: "Set-Cookie: cabin_viewer=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n"); return
+        }
         if method == "POST", path == "/api/pair" {
             guard now() - startedAt <= configuration.pairingWindow else { respond(client, 410); return }
             guard wrongAttempts < 5 else { respond(client, 429); return }
@@ -288,6 +351,7 @@ public final class LocalHTTPServer {
         })
     }
     private func tick() {
+        guard running, !startupTimedOut() else { return }
         guard now() < configuration.expiresAt else { stopOnQueue(); return }
         for client in Array(clients.values) {
             if (client.sending && now() - client.sendStarted > 3) || (!client.streaming && now() - client.opened > 3) { close(client); continue }

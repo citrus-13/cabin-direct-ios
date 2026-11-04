@@ -60,7 +60,7 @@ if (execute('shared-compile', 'swiftc', ['-module-cache-path', path.join(work, '
   'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift',
   'ios/DirectIntegrationChecks/main.swift', '-o', shared])) execute('shared-tests', shared, []);
 execute('ios-source-parse-only', 'swiftc', ['-frontend', '-parse',
-  'ios/StandaloneApp/CabinDirectApp.swift', 'ios/StandaloneBroadcast/DirectSampleHandler.swift',
+  'ios/StandaloneApp/CabinDirectApp.swift', 'ios/StandaloneApp/DirectDemoRuntime.swift', 'ios/StandaloneBroadcast/DirectSampleHandler.swift',
   'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift']);
 console.log(`\nReport: ${reportPath}\nScope: macOS native execution and Swift syntax parsing only; full_iOS_build=false; no device acceptance.`);
 if (results.some(result => result.status !== 'passed')) process.exitCode = 1;

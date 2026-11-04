@@ -14,8 +14,10 @@ private func XCTAssertThrowsError<T>(_ expression: @autoclosure () throws -> T, 
 private final class TestClock {
     private let lock = NSLock()
     private var offset: Double = 0
-    func now() -> Double { lock.lock(); defer { lock.unlock() }; return Date().timeIntervalSince1970 + offset }
+    private var readAdvance: Double = 0
+    func now() -> Double { lock.lock(); defer { lock.unlock() }; let value = Date().timeIntervalSince1970 + offset; offset += readAdvance; return value }
     func advance(_ seconds: Double) { lock.lock(); offset += seconds; lock.unlock() }
+    func advanceOnEachRead(_ seconds: Double) { lock.lock(); readAdvance = seconds; lock.unlock() }
 }
 private final class Socket {
     let fd: Int32
@@ -184,22 +186,116 @@ final class LocalHTTPServerTests {
         server.start(port: fixedPort, onReady: { port in XCTAssertEqual(port, fixedPort); ready.signal() }, onFailure: { error in XCTFail("Fixed-port binding: \(error)"); ready.signal() })
         XCTAssertEqual(ready.wait(timeout: .now() + 3), .success)
         XCTAssertTrue(try request("/health").contains("200 OK"))
-        server.updateState(.init(captureState: "live", lyricState: "synced", lyricLines: ["vehicle text"], lyricUpdatedAt: clock.now(), source: "tesla-ble"))
-        XCTAssertTrue(try request("/api/state", headers: auth).contains("tesla-ble"))
-        server.updateState(.init(source: "untrusted-source"))
-        XCTAssertTrue(try request("/api/state", headers: auth).contains("visible-screen"))
+        for source in ["visible-screen", "demo"] {
+            server.updateState(.init(source: source))
+            XCTAssertTrue(try request("/api/state", headers: auth).contains("\"source\":\"\(source)\""))
+        }
+        for source in ["untrusted-source", "tesla-ble"] {
+            server.updateState(.init(source: source))
+            XCTAssertTrue(try request("/api/state", headers: auth).contains("\"source\":\"visible-screen\""))
+        }
+    }
+    func testUnpairOnlyClearsRequestingBrowserCookie() throws {
+        publish()
+        let origin = "Origin: http://127.0.0.1:\(port)\r\n"
+        for headers in [origin + "Cookie: cabin_viewer=\(token)\r\n", origin, origin] {
+            let response = try request("/api/unpair", method: "POST", headers: headers)
+            XCTAssertTrue(response.contains("204 No Content"))
+            XCTAssertTrue(response.contains("Set-Cookie: cabin_viewer=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0\r\n"))
+            XCTAssertEqual(response.components(separatedBy: "\r\n\r\n").last!, "")
+            XCTAssertFalse(response.contains(token))
+        }
+        // No source revocation: other already-authorized clients remain usable.
+        XCTAssertTrue(try request("/frame.jpg", headers: auth).contains("200 OK"))
+        XCTAssertTrue(try request("/api/state", headers: "Cookie: cabin_viewer=\(token)\r\n").contains("200 OK"))
+        XCTAssertTrue(try request("/api/state").contains("401"))
+        for originValue in ["", "Origin: null\r\n", "Origin: http://evil.example\r\n", "Origin: https://127.0.0.1:\(port)\r\n", "Origin: http://127.0.0.1:1\r\n"] {
+            let response = try request("/api/unpair", method: "POST", headers: originValue)
+            XCTAssertTrue(response.contains("403")); XCTAssertFalse(response.contains("Set-Cookie"))
+        }
+        XCTAssertTrue(try request("/api/unpair").contains("404"))
+        XCTAssertTrue(try request("/api/unpair", method: "POST", headers: origin, body: "unexpected").contains("400"))
+    }
+    func testIPv6AllowlistIsExactNormalizedAndBounded() throws {
+        func health(_ host: String) throws -> String {
+            let socket = try Socket(port: port)
+            socket.write("GET /health HTTP/1.1\r\nHost: \(host)\r\n\r\n")
+            return String(decoding: socket.read(), as: UTF8.self)
+        }
+        XCTAssertTrue(try health("[2001:db8::5]").contains("403"))
+        server.stop(); Thread.sleep(forTimeInterval: 0.1)
+        let ready = DispatchSemaphore(value: 0)
+        server = LocalHTTPServer(configuration: .init(token: token, pairingCode: "123456", expiresAt: clock.now() + 600, allowedIPv6Hosts: ["2001:db8::5"]), assets: [:], now: clock.now, bindToLoopback: true)
+        server.start(port: 0, onReady: { self.port = $0; ready.signal() }, onFailure: { XCTFail("\($0)"); ready.signal() })
+        XCTAssertEqual(ready.wait(timeout: .now() + 3), .success)
+        for host in ["[2001:db8::5]", "[2001:0DB8:0:0:0:0:0:5]:8080"] { XCTAssertTrue(try health(host).contains("200 OK")) }
+        for host in ["[2001:db8::6]", "[2001:db8::5]:0", "2001:db8::5", "public.example", "[::ffff:127.0.0.1]", "[ff02::1]", "[::]"] { XCTAssertTrue(try health(host).contains("403")) }
+        let socket = try Socket(port: port)
+        socket.write("POST /api/unpair HTTP/1.1\r\nHost: [2001:db8::5]:8080\r\nOrigin: http://[2001:0db8:0:0:0:0:0:5]:8080\r\nContent-Length: 0\r\n\r\n")
+        XCTAssertTrue(String(decoding: socket.read(), as: UTF8.self).contains("403"), "Origin remains exact, even if host literals normalize equally")
+        for hosts in [["::"], ["ff02::1"], ["::ffff:127.0.0.1"], ["example.com"], ["[2001:db8::5]"], ["2001:db8::5\0extra"], Array(repeating: "2001:db8::5", count: 17)] {
+            let rejected = DispatchSemaphore(value: 0)
+            let invalid = LocalHTTPServer(configuration: .init(token: token, pairingCode: "123456", expiresAt: clock.now() + 600, allowedIPv6Hosts: hosts), assets: [:], bindToLoopback: true)
+            invalid.start(port: 0, onReady: { _ in XCTFail("Invalid allowlist started"); rejected.signal() }, onFailure: { _ in rejected.signal() })
+            XCTAssertEqual(rejected.wait(timeout: .now() + 3), .success)
+            invalid.stop()
+        }
+    }
+    func testStopAcknowledgesCleanupAndRapidSamePortRestart() throws {
+        let fixedPort = port
+        for _ in 0..<3 {
+            let incomplete = try Socket(port: fixedPort)
+            incomplete.write("GET /health HTTP/1.1\r\nHost:")
+            let stopped = DispatchSemaphore(value: 0)
+            server.stop { stopped.signal() }
+            server = nil // Completion must survive the containing runtime releasing ownership.
+            XCTAssertEqual(stopped.wait(timeout: .now() + 3), .success)
+            // The acknowledgement must follow listener cancellation, not merely enqueue it.
+            XCTAssertThrowsError(try Socket(port: fixedPort))
+            XCTAssertTrue(incomplete.read().isEmpty)
+            let ready = DispatchSemaphore(value: 0)
+            server = LocalHTTPServer(configuration: .init(token: token, pairingCode: "123456", expiresAt: clock.now() + 600), assets: [:], now: clock.now, bindToLoopback: true)
+            server.start(port: fixedPort, onReady: { value in XCTAssertEqual(value, fixedPort); ready.signal() },
+                         onFailure: { error in XCTFail("Rapid restart: \(error)"); ready.signal() })
+            XCTAssertEqual(ready.wait(timeout: .now() + 3), .success)
+            XCTAssertTrue(try request("/health").contains("200 OK"))
+        }
+    }
+    func testStartupDeadlineFailsOnceAndCleansListener() throws {
+        let stopped = DispatchSemaphore(value: 0), failed = DispatchSemaphore(value: 0)
+        server.stop { stopped.signal() }
+        XCTAssertEqual(stopped.wait(timeout: .now() + 3), .success)
+        let fixedPort = port, expires = clock.now() + 600
+        // Existing injectable clock makes the startup deadline elapse before the
+        // actual listener's first ready/timer event. No production-only test switch.
+        clock.advanceOnEachRead(11)
+        var failures = 0, readiness = 0, failureMessage = ""
+        server = LocalHTTPServer(configuration: .init(token: token, pairingCode: "123456", expiresAt: expires), assets: [:], now: clock.now, bindToLoopback: true)
+        server.start(port: fixedPort, onReady: { _ in readiness += 1; failed.signal() }, onFailure: { error in
+            failures += 1; failureMessage = error.localizedDescription; failed.signal()
+        })
+        XCTAssertEqual(failed.wait(timeout: .now() + 3), .success)
+        XCTAssertEqual(readiness, 0); XCTAssertEqual(failures, 1)
+        XCTAssertTrue(failureMessage.contains("10 seconds")); XCTAssertTrue(failureMessage.contains("permission"))
+        XCTAssertThrowsError(try Socket(port: fixedPort))
+        Thread.sleep(forTimeInterval: 0.25)
+        XCTAssertEqual(failures, 1); XCTAssertEqual(readiness, 0)
+        let finalStop = DispatchSemaphore(value: 0)
+        server.stop { finalStop.signal() }
+        XCTAssertEqual(finalStop.wait(timeout: .now() + 3), .success)
+        clock.advanceOnEachRead(0)
     }
 }
 
 @main private struct TestRunner {
     static func main() {
-        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds"]
+        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout"]
         var passed = 0
         for index in names.indices {
             let suite = LocalHTTPServerTests(), before = assertionFailures
             do {
                 try suite.setUpWithError()
-                let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds]
+                let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds, suite.testUnpairOnlyClearsRequestingBrowserCookie, suite.testIPv6AllowlistIsExactNormalizedAndBounded, suite.testStopAcknowledgesCleanupAndRapidSamePortRestart, suite.testStartupDeadlineFailsOnceAndCleansListener]
                 try tests[index]()
             } catch { XCTFail("\(names[index]): \(error)") }
             suite.tearDown()

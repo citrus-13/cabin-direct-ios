@@ -120,6 +120,8 @@ jobs:
           ]) {
             if (fs.existsSync(file)) lines.push(`${label} SHA-256: ${hash(file)}`);
           }
+          // Preserve a small, scrubbed result and executable hashes in normal CLI logs too.
+          console.log(lines.join('\n'));
           const logs = ['toolchain', 'npm-ci', 'npm-check', 'npm-test', 'ios-build'].map(name =>
             [name, path.join(process.env.RUNNER_TEMP, 'cabin-ci-logs', name + '.log')]);
           logs.push(['compiler', path.join(work, 'logs/unsigned-generic-ios-build.log')]);

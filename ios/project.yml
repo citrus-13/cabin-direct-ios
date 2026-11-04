@@ -20,8 +20,6 @@ packages:
     path: DirectCore
   DirectCapture:
     path: DirectCapture
-  TeslaBLE:
-    path: TeslaBLE
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 156.0.0
@@ -99,22 +97,26 @@ targets:
     platform: iOS
     sources:
       - StandaloneApp
+      - AppAssets.xcassets
       - Shared/SessionConfiguration.swift
       - Shared/DirectConfiguration.swift
-      - path: TeslaBLE/LICENSE-TESLA
+      - path: ../LICENSE
         buildPhase: resources
-      - path: TeslaBLE/PROVENANCE.md
+      - path: ../NOTICE
+        buildPhase: resources
+      - path: PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: StandaloneWeb
+        type: folder
         buildPhase: resources
     info:
       path: Config/Direct-App-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct
         UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: Connect your own Tesla browser to this iPhone's local screen broadcast.
-        NSBluetoothAlwaysUsageDescription: Read media data from your own Tesla only after explicit owner-authorized monitor-key enrollment.
+        NSLocalNetworkUsageDescription: Share your screen or original demo with a browser you pair on your trusted local network. Screen content is not sent to a developer server.
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
         TCBroadcastExtensionIdentifier: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
-        TCKeychainAccessGroup: $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
@@ -124,16 +126,16 @@ targets:
       properties:
         com.apple.security.application-groups:
           - $(DIRECT_APP_GROUP_IDENTIFIER)
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX)
-        MARKETING_VERSION: "0.3.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.4.0"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: DirectBroadcastExtension
         embed: true
-      - package: TeslaBLE
+      - package: DirectCore
   DirectBroadcastExtension:
     type: app-extension
     platform: iOS
@@ -141,10 +143,11 @@ targets:
       - StandaloneBroadcast
       - Shared/SessionConfiguration.swift
       - Shared/DirectConfiguration.swift
-      - Shared/DirectLyrics.swift
-      - path: TeslaBLE/LICENSE-TESLA
+      - path: ../LICENSE
         buildPhase: resources
-      - path: TeslaBLE/PROVENANCE.md
+      - path: ../NOTICE
+        buildPhase: resources
+      - path: Privacy/Broadcast/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: StandaloneWeb
         type: folder
@@ -154,8 +157,7 @@ targets:
       properties:
         CFBundleDisplayName: Cabin Direct Screen
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
-        TCKeychainAccessGroup: $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
-        NSBluetoothAlwaysUsageDescription: Read only the media state of your owner-authorized Tesla during a broadcast.
+        NSLocalNetworkUsageDescription: Serve a user-started screen broadcast only to paired browsers on your trusted local network.
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DirectSampleHandler
@@ -165,12 +167,11 @@ targets:
       properties:
         com.apple.security.application-groups:
           - $(DIRECT_APP_GROUP_IDENTIFIER)
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
-        MARKETING_VERSION: "0.3.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.4.0"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS:
@@ -180,7 +181,6 @@ targets:
     dependencies:
       - package: DirectCore
       - package: DirectCapture
-      - package: TeslaBLE
 schemes:
   CabinDirect:
     build:
