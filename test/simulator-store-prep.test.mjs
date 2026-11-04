@@ -18,6 +18,11 @@ import { EXPECTED_TESTS, SCREENSHOT_NAMES, chooseSimulator, validateDirectories,
 const repo = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '');
 const runtime = 'com.apple.CoreSimulator.SimRuntime.iOS-27-0';
 const device = 'com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max';
+test('simulator command uses default single execution, not invalid one-iteration repetition', () => {
+  const source = fs.readFileSync(path.join(repo,'scripts/check-simulator-store-prep.mjs'),'utf8');
+  assert.doesNotMatch(source, /'-test-iterations'/);
+  assert.match(source, /'-test-timeouts-enabled', 'YES'/);
+});
 function inventory() {
   return { runtimes: [{ identifier: runtime, version: '27.0', isAvailable: true,
     supportedDeviceTypes: [{ identifier: device }] }],

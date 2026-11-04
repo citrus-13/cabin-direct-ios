@@ -38,6 +38,7 @@ const redact = text => text.replace(/(?:gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za
 async function run(name, command, args, timeout = 60_000, cleanup = false) {
   phase = name;
   requireValue(cleanup || !interrupted, 'Interrupted');
+  console.log('[simulator phase] ' + name + ' started');
   const result = await new Promise(resolve => {
     const child = spawn(command, args, { cwd: repo, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
     active = child;
@@ -60,6 +61,7 @@ async function run(name, command, args, timeout = 60_000, cleanup = false) {
   fs.writeFileSync(path.join(work, 'logs', name + '.log'), redact(result.stdout + result.stderr), { flag: 'wx' });
   const ok = result.status === 0 && !result.timedOut && !result.overflow && !result.spawnError && (cleanup || !interrupted);
   report.phases.push({ name, passed: ok, exit_code: result.status, timed_out: result.timedOut });
+  console.log('[simulator phase] ' + name + (ok ? ' passed' : ' failed'));
   requireValue(ok, 'Command phase failed: ' + name);
   return result.stdout;
 }
@@ -102,7 +104,7 @@ try {
     'test', '-project', path.join(repo, 'ios/TeslaCompanion.xcodeproj'), '-scheme', 'CabinDirectStorePrep',
     '-configuration', 'Release', '-sdk', 'iphonesimulator', '-destination', 'platform=iOS Simulator,id=' + ownedUDID,
     '-destination-timeout', '120', '-parallel-testing-enabled', 'NO', '-maximum-concurrent-test-simulator-destinations', '1',
-    '-test-iterations', '1', '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '120',
+    '-test-timeouts-enabled', 'YES', '-default-test-execution-time-allowance', '120',
     '-maximum-test-execution-time-allowance', '180', '-derivedDataPath', path.join(work, 'DerivedData'),
     '-clonedSourcePackagesDirPath', path.join(work, 'SourcePackages'), '-resultBundlePath', result, '-skipPackageUpdates',
     'CODE_SIGNING_ALLOWED=YES', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=-', 'DEVELOPMENT_TEAM=', 'CODE_SIGN_STYLE=Manual',
