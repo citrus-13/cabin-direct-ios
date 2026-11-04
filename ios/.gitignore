@@ -1,0 +1,6 @@
+*.xcodeproj/
+*.xcworkspace/
+Config/*-Info.plist
+Config/*.entitlements
+DerivedData/
+.DS_Store

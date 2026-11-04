@@ -1,0 +1,166 @@
+name: Cabin Direct public unsigned iOS compile
+
+# Manual only. This file is inert in the private source checkout.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cabin-public-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public_unsigned_ios:
+    # Job-level guard is evaluated before allocating a runner, not after checkout.
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository_owner == 'citrus-13' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_UPGRADE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+    steps:
+      - name: Prepare ephemeral runner directories
+        run: |
+          if [[ "$RUNNER_TEMP" != /* || "$RUNNER_TEMP" == *$'\n'* || "$RUNNER_TEMP" == *$'\r'* ]]; then
+            exit 1
+          fi
+          export TMPDIR="$RUNNER_TEMP/cabin-ci-tmp"
+          mkdir -p "$TMPDIR" "$RUNNER_TEMP/cabin-ci-logs" "$RUNNER_TEMP/cabin-ios-simulated-tests"
+          printf '%s\n' \
+            "CABIN_IOS_WORK_DIR=$RUNNER_TEMP/cabin-ios-build" \
+            "CABIN_IOS_TEST_WORK_DIR=$RUNNER_TEMP/cabin-ios-simulated-tests" \
+            "TMPDIR=$TMPDIR" \
+            "npm_config_cache=$RUNNER_TEMP/cabin-npm-cache" >> "$GITHUB_ENV"
+
+      # Official release commit: https://github.com/actions/checkout/releases/tag/v7.0.1
+      - name: Checkout source without persisted authentication
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      # Official release commit: https://github.com/actions/setup-node/releases/tag/v6.0.0
+      - name: Select Node 22 without Actions dependency caching
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+
+      - name: Install free XcodeGen only when absent
+        run: |
+          if ! brew list --versions xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          {
+            xcodegen --version
+            node --version
+            xcodebuild -version
+            xcrun --sdk iphoneos --show-sdk-path
+          } 2>&1 | tee "$RUNNER_TEMP/cabin-ci-logs/toolchain.log"
+
+      - name: Install locked JavaScript dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund 2>&1 | tee "$RUNNER_TEMP/cabin-ci-logs/npm-ci.log"
+
+      - name: Check JavaScript syntax
+        run: npm run check 2>&1 | tee "$RUNNER_TEMP/cabin-ci-logs/npm-check.log"
+
+      - name: Compile actual unsigned generic iOS app and extension
+        id: build
+        run: node scripts/build-ios.mjs 2>&1 | tee "$RUNNER_TEMP/cabin-ci-logs/ios-build.log"
+
+      - name: Run source tests separately after the compiler result
+        id: source_tests
+        if: ${{ !cancelled() }}
+        run: npm test 2>&1 | tee "$RUNNER_TEMP/cabin-ci-logs/npm-test.log"
+
+      # No artifact upload, release asset, Actions cache or package publication.
+      # Build products disappear with the ephemeral runner; only hashes/log summaries remain.
+      - name: Summarize bounded scrubbed evidence without artifact storage
+        if: ${{ always() }}
+        env:
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.source_tests.outcome }}
+        run: |
+          node --input-type=module <<'SUMMARY_JS'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import crypto from 'node:crypto';
+          import readline from 'node:readline';
+          const work = process.env.CABIN_IOS_WORK_DIR;
+          const reportFile = path.join(work, 'ios-build-report.json');
+          const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+          const scrub = value => String(value)
+            .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]')
+            .replace(/\b(?:gh[pousr]_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]+)\b/g, '[REDACTED TOKEN]')
+            .replace(/https?:\/\/[^\s/@]+:[^\s/@]+@/g, 'https://[REDACTED]@')
+            .replace(/(?:authorization|cookie|password|passwd|secret|token|credential|private[ _-]?key|pairing[ _-]?code)\s*[:=].*$/gim, '[REDACTED FIELD]')
+            .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+            .replace(/[<>`]/g, character => ({ '<': '&lt;', '>': '&gt;', '`': 'ˋ' })[character]);
+          let report = null;
+          try { report = JSON.parse(fs.readFileSync(reportFile, 'utf8')); } catch {}
+          const compiled = process.env.BUILD_OUTCOME === 'success' && report?.evidence_kind === 'actual' && report?.full_iOS_build === true;
+          const source = /^[a-f0-9]{40,64}$/i.test(process.env.GITHUB_SHA || '') ? process.env.GITHUB_SHA : 'unavailable';
+          const lines = ['## Cabin Direct compile evidence', '', `Source commit: ${source}`,
+            `Build step: ${scrub(process.env.BUILD_OUTCOME || 'not run')}`,
+            `Source test step: ${scrub(process.env.TEST_OUTCOME || 'not run')}`,
+            `Actual unsigned iOS compilation: ${compiled ? 'passed' : 'NOT established'}`,
+            `Report state: ${scrub(report?.state || 'no report; inspect preceding step')}`, '',
+            'No signing, provisioning, installable IPA, device acceptance or artifact upload. Unsigned app/extension files are ephemeral.', ''];
+          for (const [label, file] of [
+            ['Report', reportFile],
+            ['Workflow', path.join(process.env.GITHUB_WORKSPACE, '.github/workflows/cabin-public-build.yml')],
+            ['Unsigned app executable', path.join(work, 'DerivedData/Build/Products/Debug-iphoneos/CabinDirect.app/CabinDirect')],
+            ['Unsigned extension executable', path.join(work, 'DerivedData/Build/Products/Debug-iphoneos/CabinDirect.app/PlugIns/DirectBroadcastExtension.appex/DirectBroadcastExtension')]
+          ]) {
+            if (fs.existsSync(file)) lines.push(`${label} SHA-256: ${hash(file)}`);
+          }
+          const logs = ['toolchain', 'npm-ci', 'npm-check', 'npm-test', 'ios-build'].map(name =>
+            [name, path.join(process.env.RUNNER_TEMP, 'cabin-ci-logs', name + '.log')]);
+          logs.push(['compiler', path.join(work, 'logs/unsigned-generic-ios-build.log')]);
+          for (const [label, file] of logs) {
+            if (!fs.existsSync(file)) continue;
+            const fd = fs.openSync(file, 'r');
+            let tail;
+            try {
+              const size = fs.fstatSync(fd).size, bytes = Buffer.alloc(Math.min(size, 12_000));
+              fs.readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
+              tail = scrub(bytes.toString('utf8')).split('\n').slice(-35).join('\n');
+            } finally { fs.closeSync(fd); }
+            lines.push('', `### ${label} (bounded tail)`, '```text', tail, '```');
+          }
+          const compilerLog = path.join(work, 'logs/unsigned-generic-ios-build.log');
+          if (fs.existsSync(compilerLog)) {
+            const selected = [], seen = new Set(), previous = [];
+            let number = 0, matches = 0, following = 0, bytes = 0;
+            const add = item => {
+              if (seen.has(item.number) || bytes >= 16_000) return;
+              seen.add(item.number);
+              const value = `${item.number}: ${item.text}`;
+              selected.push(value); bytes += Buffer.byteLength(value) + 1;
+            };
+            const stream = fs.createReadStream(compilerLog);
+            const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
+            try {
+              for await (const raw of reader) {
+                const item = { number: ++number, text: raw.slice(0, 2_000) };
+                if (matches < 40 && /\berror:|fatal error:|BUILD FAILED/i.test(item.text)) {
+                  matches += 1; previous.forEach(add); add(item); following = 2;
+                } else if (following > 0) { add(item); following -= 1; }
+                previous.push(item); if (previous.length > 2) previous.shift();
+                if (bytes >= 16_000 || (matches >= 40 && following === 0)) break;
+              }
+            } finally { reader.close(); stream.destroy(); }
+            if (selected.length) {
+              const diagnostics = Buffer.from(scrub(selected.join('\n'))).subarray(0, 16_000).toString('utf8');
+              lines.push('', '### Compiler diagnostics (first 40 matches, 2 context lines, max 16 KB)', '```text', diagnostics, '```');
+              console.log('Bounded scrubbed compiler diagnostics:\n' + diagnostics);
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n');
+          SUMMARY_JS

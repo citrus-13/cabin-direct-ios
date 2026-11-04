@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f4ef">
+  <title>Cabin · 驾舱伴侣</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Cabin 首页"><span class="brand-mark">c<span>·</span></span><span>cabin<span class="brand-cn">驾舱伴侣</span></span></a>
+    <nav class="mode-nav" aria-label="工作模式">
+      <button type="button" data-mode="sender" class="active">发送控制台</button>
+      <button type="button" data-mode="receiver">车机接收端</button>
+    </nav>
+    <span class="version">整合验证版 <span>0.2</span></span>
+  </header>
+
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">YOUR SCREEN. YOUR SOUND.</p><h1>把画面与歌词，<br><span>带进你的座舱。</span></h1></div>
+      <div class="intro-aside"><span class="live-indicator"></span><span id="connection-status" role="status" data-testid="connection-status">尚未连接</span><p id="status-detail">创建连接，然后在另一端打开接收页面。</p></div>
+    </section>
+
+    <div class="workspace">
+      <aside class="sidebar">
+        <section class="card" data-panel="sender">
+          <div class="section-heading"><span class="step">01</span><h2>连接你的屏幕</h2><span class="small-tag">发送端</span></div>
+          <p class="muted">先创建一个临时连接。接收链接只交给你想连接的设备。</p>
+          <button class="button primary full" id="create-room" data-testid="create-room">创建连接 <span>↗</span></button>
+          <div class="pair-code"><span>连接编号</span><strong id="room-code" data-testid="room-code">— — — — — —</strong></div>
+          <div class="button-row"><button class="button secondary" id="open-receiver">打开接收端 ↗</button><button class="button ghost" id="copy-link">复制链接</button></div>
+          <details class="link-details"><summary>查看接收链接</summary><label for="receiver-link">含临时接收凭证</label><input id="receiver-link" type="text" readonly placeholder="创建连接后生成" autocomplete="off"></details>
+          <details class="link-details"><summary>连接本地 Tesla BLE 歌曲桥接</summary><p class="footnote">独立于投屏发送端，可同时工作。需要车旁 Mac/Linux、官方 tesla-control 和已获车辆批准的钥匙。当前不会自动连接车辆。</p><label for="metadata-token">歌曲桥接专用凭据（保存至仓库外的私密文件）</label><input id="metadata-token" type="password" readonly autocomplete="off" placeholder="创建房间后生成"><button class="button ghost" id="show-metadata-token">显示／隐藏桥接凭据</button><p class="footnote">命令与范围见 docs/TESLA_BLE.md。它不能发布视频或控制车辆；但车辆私钥本身不一定仅有读取权限。</p></details>
+        </section>
+
+        <section class="card" data-panel="receiver" hidden>
+          <div class="section-heading"><span class="step">01</span><h2>加入连接</h2><span class="small-tag">接收端</span></div>
+          <p class="muted">使用发送端生成的完整链接，或输入连接信息。</p>
+          <label for="room-input">连接编号</label><input id="room-input" placeholder="6 位编号" autocomplete="off" maxlength="6">
+          <label for="token-input">接收凭证</label><input id="token-input" type="password" placeholder="来自发送端的接收凭证" autocomplete="off">
+          <button class="button primary full" id="join-room">连接屏幕 <span>↗</span></button>
+          <p class="footnote">只有链接中的接收凭证可以加入。编号本身不是通行证。</p>
+        </section>
+
+        <section class="card source-card" data-panel="sender">
+          <div class="section-heading"><span class="step">02</span><h2>选择内容</h2></div>
+          <button class="source-button" id="start-demo" data-testid="start-demo"><span class="source-icon">◉</span><span><strong>测试画面与歌词</strong><small>原创测试内容 · 无需录屏权限</small></span><span class="source-arrow">↗</span></button>
+          <button class="source-button" id="share-screen"><span class="source-icon">▣</span><span><strong>分享电脑屏幕</strong><small>由你在系统窗口选择分享范围</small></span><span class="source-arrow">↗</span></button>
+          <p class="footnote">iPhone 整屏分享需使用配套原生 App；Safari 网页不能替代系统屏幕广播。</p>
+          <button class="button stop full" id="stop-stream">停止画面</button>
+        </section>
+        <section class="card music-controls" data-panel="sender">
+          <div class="section-heading"><span class="step">03</span><h2>蓝牙音乐的歌词</h2></div>
+          <p class="muted">声音照常在音乐 App 里播放。未连接 BLE 桥接时，下面由你手动指定歌曲和进度。</p>
+          <label for="song-title">歌曲名</label><input id="song-title" maxlength="256" placeholder="输入歌曲名">
+          <label for="song-artist">歌手</label><input id="song-artist" maxlength="256" placeholder="输入歌手">
+          <label for="song-album">专辑（可选）</label><input id="song-album" maxlength="256" placeholder="用于减少同名曲目误匹配">
+          <div class="field-grid"><div><label for="song-duration">总时长（秒）</label><input id="song-duration" type="number" min="0" max="3600" step="0.1" value="0"></div><div><label for="song-position">已播放（秒）</label><input id="song-position" type="number" min="0" max="86400" step="0.1" value="0"></div></div>
+          <div class="button-row"><button class="button secondary" id="manual-sync">以此进度开始同步</button><button class="button ghost" id="manual-pause">暂停歌词</button></div>
+          <p class="footnote">这不会控制音乐 App。暂停、拖进度或换歌后，请重新同步，或使用本地 BLE 桥接。</p>
+          <label class="consent-label"><input id="allow-online-lyrics" type="checkbox">允许向 LRCLIB 发送歌名、歌手、专辑和时长以查询歌词</label>
+          <div class="button-row"><button class="button secondary" id="lookup-lyrics" disabled>匹配同步歌词</button><button class="button ghost" id="search-lyrics" disabled>搜索候选曲目</button></div>
+          <div id="lyric-results" class="lyric-results" aria-live="polite"></div>
+          <p id="lyrics-result-status" class="footnote" role="status">也可导入自己的 LRC，不需要任何在线查询。</p>
+          <button class="button ghost" id="select-ble-source">使用已连接的 BLE 桥接</button>
+        </section>
+        <div class="scope-note"><span>ⓘ</span><p>请在停车时设置与测试。电脑端连通不代表已通过 Tesla 实车验证。</p></div>
+      </aside>
+
+      <section class="main-stage">
+        <div class="display-controls" aria-label="显示设置">
+          <div class="view-tabs" role="group" aria-label="车机显示布局"><button data-view="split" aria-pressed="true">分屏</button><button data-view="mirror" aria-pressed="false">投屏</button><button data-view="lyrics" aria-pressed="false">歌词</button></div>
+          <button class="button ghost" id="fullscreen-view">全屏显示</button>
+        </div>
+        <section class="viewer-card">
+          <div class="viewer-toolbar"><span><span class="dot"></span><strong id="mode-label">发送预览</strong></span><span id="source-label">等待内容</span></div>
+          <div class="screen">
+            <div class="screen-empty" aria-hidden="true"><span class="screen-symbol">c·</span><p>一个连接，两个屏幕。</p><small>选择测试画面，开始第一次连接。</small></div>
+            <video id="sender-video" autoplay muted playsinline data-testid="sender-video"></video>
+            <video id="receiver-video" autoplay muted playsinline controls data-testid="receiver-video" hidden></video>
+            <canvas id="demo-canvas" width="1280" height="720" hidden></canvas>
+          </div>
+          <div class="viewer-footer"><span>WebRTC · 实时画面</span><button type="button" id="enable-audio" data-panel="receiver" hidden>开启接收声音</button><span>不上传本地媒体文件</span></div>
+        </section>
+
+        <section class="lyric-card" aria-label="同步歌词">
+          <div class="album-mark" aria-hidden="true"><div></div></div>
+          <div class="lyric-body"><div class="lyric-meta"><span id="lyrics-title">等待歌曲</span><span class="lyric-divider">/</span><span id="lyrics-artist">演示与本地 LRC</span></div><p id="lyric-current" data-testid="lyric-current">每一句，都跟上此刻。</p><p id="lyric-next">真实网易云／QQ 歌曲读取尚待实车接入。</p><progress id="lyric-progress" max="1" value="0" aria-label="歌词播放进度"></progress></div>
+          <span class="lyric-badge" id="lyrics-provenance">LYRICS</span>
+        </section>
+        <section class="lyric-preferences" aria-label="歌词显示偏好">
+          <label for="lyric-size">字号<input id="lyric-size" type="range" min="18" max="56" value="28"></label>
+          <label for="lyric-offset">歌词提前（秒）<input id="lyric-offset" type="number" min="-15" max="15" step="0.1" value="0"></label>
+          <label for="lyric-theme">主题<select id="lyric-theme"><option value="light">浅色</option><option value="dark">深色</option></select></label>
+          <a href="https://lrclib.net" target="_blank" rel="noopener noreferrer" id="lyrics-attribution" hidden>歌词来源 LRCLIB ↗</a>
+        </section>
+
+        <section class="card local-card" data-panel="sender">
+          <div class="section-heading"><span class="step">03</span><h2>自己的音乐与视频</h2><span class="small-tag">仅本机读取</span></div>
+          <p class="muted">选择你有权使用的媒体，再导入 LRC 歌词。文件不会上传到信令服务。</p>
+          <div class="file-row"><label class="file-button">＋ 选择音频或视频<input id="media-file" type="file" accept="audio/*,video/*"></label><label class="file-button">＋ 导入 LRC 歌词<input id="lyrics-file" type="file" accept=".lrc,text/plain"></label></div>
+          <video id="local-media" controls playsinline aria-label="本地媒体播放器"></video>
+          <div class="button-row"><button class="button secondary" id="local-play">播放本地媒体</button><button class="button ghost" id="local-pause">暂停</button></div>
+        </section>
+
+        <details class="diagnostics" open>
+          <summary><span>连接诊断</span><span class="diagnostic-caption">来自实际连接，不代表端到端延迟</span></summary>
+          <div class="stats-grid"><div><span>帧率</span><strong id="fps-value" data-testid="fps-value">—</strong></div><div><span>视频帧数</span><strong id="frames-value" data-testid="frames-value">—</strong></div><div><span>媒体数据</span><strong id="bytes-value">—</strong></div><div><span>连接路径</span><strong id="route-value" data-testid="route-value">—</strong></div><div><span>网络往返</span><strong id="rtt-value">—</strong></div></div>
+          <ul id="event-log" class="event-log" aria-label="连接日志"></ul>
+        </details>
+      </section>
+    </div>
+    <footer class="page-footer"><span>cabin · 独立开发项目，与 Tesla、网易云音乐及 QQ 音乐无隶属关系。</span><span>先验证连接，再验证体验。</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,21 @@
+{
+  "name": "tesla-companion-demo",
+  "version": "0.3.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": "github:citrus-13/cabin-direct-ios",
+  "type": "module",
+  "description": "Cabin Direct iPhone-only native runtime source and browser validation harness. Device acceptance pending.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test",
+    "test:native": "node scripts/check-native.mjs",
+    "ios:preflight": "node scripts/build-ios.mjs --preflight-only",
+    "build:ios": "node scripts/build-ios.mjs",
+    "check": "node scripts/check.mjs",
+    "fixtures": "node scripts/make-test-media.mjs",
+    "tesla:bridge": "node scripts/tesla-lyrics-bridge.mjs"
+  },
+  "dependencies": { "ws": "8.22.0" }
+}

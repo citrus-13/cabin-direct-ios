@@ -1,0 +1,27 @@
+Cabin Direct
+
+The original project source is distributed under Apache License 2.0 with the
+project owner's permission. Third-party material retains its own copyright and
+license; this project does not relicense Apple SDKs, dependencies or song lyrics.
+
+The reduced Swift Tesla protocol implementation and public offline vectors are
+adapted from Tesla, Inc.'s teslamotors/vehicle-command, pinned to commit:
+0a582da430c4aca6d397fb6cbed5b4d6bb380125
+https://github.com/teslamotors/vehicle-command
+Changes replace Go/generated bindings with a bounded Swift codec and CryptoKit,
+and restrict exposed commands to authenticated media reads and explicitly gated
+Vehicle Monitor enrollment. Source mapping, changed-file descriptions and the
+unmodified upstream Apache-2.0 license are preserved in:
+ios/TeslaBLE/PROVENANCE.md
+ios/TeslaBLE/LICENSE-TESLA
+
+The optional legacy WebRTC product uses stasel/WebRTC 156.0.0. Its complete
+BSD-3-Clause notices, including Google WebRTC attribution, remain in:
+ios/App/ThirdPartyNotices.txt
+
+The Node validation harness depends on ws 8.22.0 under MIT; its package retains
+the upstream license when installed. No node_modules or Apple SDK binary is
+vendored in this source distribution. See THIRD_PARTY.md for all dependencies.
+
+Test audio, images and sample lyric text are original synthetic fixtures.
+Retrieved third-party lyrics are not included and remain subject to their rights.

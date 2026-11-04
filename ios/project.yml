@@ -1,0 +1,196 @@
+name: TeslaCompanion
+options:
+  minimumXcodeGenVersion: 2.42.0
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+    APP_BUNDLE_PREFIX: com.example.teslacompanion
+    APP_GROUP_IDENTIFIER: group.$(APP_BUNDLE_PREFIX)
+    DIRECT_APP_BUNDLE_PREFIX: $(APP_BUNDLE_PREFIX).direct
+    DIRECT_APP_GROUP_IDENTIFIER: group.$(DIRECT_APP_BUNDLE_PREFIX)
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  DirectCore:
+    path: DirectCore
+  DirectCapture:
+    path: DirectCapture
+  TeslaBLE:
+    path: TeslaBLE
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 156.0.0
+targets:
+  TeslaCompanion:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - path: Shared
+        excludes: [DirectConfiguration.swift, DirectLyrics.swift]
+    info:
+      path: Config/App-Info.plist
+      properties:
+        CFBundleDisplayName: Cabin Link
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Connect to your own local signaling server for a screen-sharing test.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        TCAppGroupIdentifier: $(APP_GROUP_IDENTIFIER)
+        TCBroadcastExtensionIdentifier: $(APP_BUNDLE_PREFIX).broadcast
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: Config/App.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(APP_GROUP_IDENTIFIER)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_PREFIX)
+    dependencies:
+      - target: BroadcastExtension
+        embed: true
+      - package: WebRTC
+  BroadcastExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Broadcast
+      - path: Shared
+        excludes: [DirectConfiguration.swift, DirectLyrics.swift]
+    info:
+      path: Config/Broadcast-Info.plist
+      properties:
+        CFBundleDisplayName: Cabin Link Screen
+        NSLocalNetworkUsageDescription: Connect the screen stream to your own test receiver.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        TCAppGroupIdentifier: $(APP_GROUP_IDENTIFIER)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: Config/Broadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(APP_GROUP_IDENTIFIER)
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(APP_BUNDLE_PREFIX).broadcast
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - '@executable_path/Frameworks'
+          - '@executable_path/../../Frameworks'
+    dependencies:
+      - package: WebRTC
+  CabinDirect:
+    type: application
+    platform: iOS
+    sources:
+      - StandaloneApp
+      - Shared/SessionConfiguration.swift
+      - Shared/DirectConfiguration.swift
+      - path: TeslaBLE/LICENSE-TESLA
+        buildPhase: resources
+      - path: TeslaBLE/PROVENANCE.md
+        buildPhase: resources
+    info:
+      path: Config/Direct-App-Info.plist
+      properties:
+        CFBundleDisplayName: Cabin Direct
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: Connect your own Tesla browser to this iPhone's local screen broadcast.
+        NSBluetoothAlwaysUsageDescription: Read media data from your own Tesla only after explicit owner-authorized monitor-key enrollment.
+        TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
+        TCBroadcastExtensionIdentifier: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
+        TCKeychainAccessGroup: $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    entitlements:
+      path: Config/Direct-App.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(DIRECT_APP_GROUP_IDENTIFIER)
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX)
+        MARKETING_VERSION: "0.3.0"
+    dependencies:
+      - target: DirectBroadcastExtension
+        embed: true
+      - package: TeslaBLE
+  DirectBroadcastExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - StandaloneBroadcast
+      - Shared/SessionConfiguration.swift
+      - Shared/DirectConfiguration.swift
+      - Shared/DirectLyrics.swift
+      - path: TeslaBLE/LICENSE-TESLA
+        buildPhase: resources
+      - path: TeslaBLE/PROVENANCE.md
+        buildPhase: resources
+      - path: StandaloneWeb
+        type: folder
+        buildPhase: resources
+    info:
+      path: Config/Direct-Broadcast-Info.plist
+      properties:
+        CFBundleDisplayName: Cabin Direct Screen
+        TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
+        TCKeychainAccessGroup: $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
+        NSBluetoothAlwaysUsageDescription: Read only the media state of your owner-authorized Tesla during a broadcast.
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).DirectSampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: Config/Direct-Broadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - $(DIRECT_APP_GROUP_IDENTIFIER)
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(DIRECT_APP_BUNDLE_PREFIX).media
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
+        MARKETING_VERSION: "0.3.0"
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - $(inherited)
+          - '@executable_path/Frameworks'
+          - '@executable_path/../../Frameworks'
+    dependencies:
+      - package: DirectCore
+      - package: DirectCapture
+      - package: TeslaBLE
+schemes:
+  CabinDirect:
+    build:
+      targets:
+        CabinDirect: all
+    run:
+      config: Debug
+  TeslaCompanion:
+    build:
+      targets:
+        TeslaCompanion: all
+    run:
+      config: Debug
