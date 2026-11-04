@@ -29,6 +29,8 @@ if (tool==='xcodegen') {
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/project.pbxproj'), {objects,rootObject:'root'});
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/xcshareddata/xcschemes/CabinDirect.xcscheme'), '<Scheme/>');
   const common={TCAppGroupIdentifier:'group.$(DIRECT_APP_BUNDLE_PREFIX)',NSLocalNetworkUsageDescription:'Connect a browser on your trusted local network.'};
+  common.CFBundleShortVersionString = process.env.FIXTURE_BAD_VERSION ? '1.0' : '$(MARKETING_VERSION)';
+  common.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)';
   if(process.env.FIXTURE_BAD_PERMISSION) common.NSBluetoothAlwaysUsageDescription='Not allowed in V1';
   put(path.join(root,'ios/Config/Direct-App-Info.plist'), common);
   put(path.join(root,'ios/Config/Direct-Broadcast-Info.plist'), {...common,NSExtension:{NSExtensionPointIdentifier:'com.apple.broadcast-services-upload',NSExtensionPrincipalClass:'$(PRODUCT_MODULE_NAME).DirectSampleHandler',RPBroadcastProcessMode:'RPBroadcastProcessModeSampleBuffer'}});
@@ -202,4 +204,12 @@ test('[SIMULATED] unknown build configuration is rejected before any build tool'
   assert.equal(result.status, 1);
   assert.equal(result.calls.length, 0);
   assert.equal(result.report, null);
+});
+
+test('[SIMULATED] generated default version cannot silently diverge from build settings', () => {
+  const result = fixture({ FIXTURE_BAD_VERSION: '1' }).run();
+  assert.equal(result.status, 1);
+  assert.equal(result.report.state, 'project_validation_failed');
+  assert.equal(result.report.project_validated, false);
+  assert.equal(result.calls.some(call => call.tool === 'xcodebuild'), false);
 });

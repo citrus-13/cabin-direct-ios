@@ -113,6 +113,8 @@ targets:
       path: Config/Direct-App-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: Share your screen or original demo with a browser you pair on your trusted local network. Screen content is not sent to a developer server.
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
@@ -156,6 +158,8 @@ targets:
       path: Config/Direct-Broadcast-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct Screen
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
         NSLocalNetworkUsageDescription: Serve a user-started screen broadcast only to paired browsers on your trusted local network.
         NSExtension:

@@ -127,6 +127,8 @@ function validateProject() {
   const extensionEntitlements = plist(path.join(config, 'Direct-Broadcast.entitlements'), 'validate-extension-entitlements');
   requireValue(appInfo.TCAppGroupIdentifier && appInfo.TCAppGroupIdentifier === extensionInfo.TCAppGroupIdentifier, 'App Group identifiers differ');
   for (const info of [appInfo, extensionInfo]) {
+    requireValue(info.CFBundleShortVersionString === '$(MARKETING_VERSION)' &&
+      info.CFBundleVersion === '$(CURRENT_PROJECT_VERSION)', 'V1 generated version must resolve from build settings');
     requireValue(typeof info.NSLocalNetworkUsageDescription === 'string' && info.NSLocalNetworkUsageDescription.length > 20, 'Local network explanation missing');
     requireValue(!info.NSBluetoothAlwaysUsageDescription && !info.NSBluetoothPeripheralUsageDescription && !info.TCKeychainAccessGroup,
       'Vehicle/Bluetooth/shared Keychain configuration must not be present in V1');
