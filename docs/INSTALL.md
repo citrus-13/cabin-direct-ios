@@ -1,12 +1,12 @@
 # Installing the unsigned preview
 
-Preview tag: **v0.4.0-preview.1**; source version: **0.4.0**. This is not App Store/TestFlight distribution. The download, if published, is **unsigned and cannot be installed directly**. You must build/sign or re-sign it using your own authorized account and inspect both the app and ReplayKit extension. No signed IPA, device installation or vehicle acceptance is claimed. A physical iPhone is needed; remote source/CI checks cannot replace it.
+Downloadable preview tag: **v0.4.0-preview.2**, built from `5c47c77222d9e8808d1a406f4e3b389bce68e342`; source version: **0.4.0**. This is not App Store/TestFlight distribution. The download is **unsigned and cannot be installed directly**. You must build/sign or re-sign it using your own authorized account and inspect both the app and ReplayKit extension. No signed IPA, device installation or vehicle acceptance is claimed. A physical iPhone is needed; remote source/CI checks cannot replace it. See the [free-install and renewal plan](FREE_INSTALL.md): local Xcode acquisition does not block ongoing cloud development.
 
 ## Recommended: build from source with Xcode
 
 Use a Mac with a current full Xcode compatible with your phone's iOS, its iPhoneOS SDK and XcodeGen 2.42+. Command Line Tools alone are insufficient. The source deployment minimum is iOS 16. Node.js 22+ is needed for the repository's JavaScript checks, not for the native app at runtime.
 
-1. Get the source from the [public repository](https://github.com/citrus-13/cabin-direct-ios) or GitHub's tagged source archive. When the preview tag has actually been published, select `v0.4.0-preview.1` and compare its commit with `BUILD-INFO.json`. Review the source and [privacy draft](PRIVACY.md); do not treat a downloaded binary as trusted solely because its checksum matches.
+1. Get the source from the [public repository](https://github.com/citrus-13/cabin-direct-ios) or GitHub's tagged source archive. To reproduce the current downloadable binary, select `v0.4.0-preview.2` and compare its commit with `BUILD-INFO.json`. The default branch also has later installation-check tooling, which is not part of that historical binary. Review the source and [privacy draft](PRIVACY.md); do not treat a downloaded binary as trusted solely because its checksum matches.
 2. From the source root, generate and open the project:
 
    ```sh
@@ -46,9 +46,9 @@ Apple documents seven-day expiry for Personal Team provisioning profiles; expect
 
 ## Optional: inspect an unsigned release package
 
-When published, obtain the three assets from the [v0.4.0-preview.1 release](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.1):
+Obtain the three assets from the [v0.4.0-preview.2 release](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.2):
 
-- `CabinDirect-v0.4.0-preview.1-unsigned.ipa`
+- `CabinDirect-v0.4.0-preview.2-unsigned.ipa`
 - `BUILD-INFO.json`
 - `SHA256SUMS.txt`
 
@@ -63,6 +63,8 @@ Every listed file must report `OK`. Compare `BUILD-INFO.json` with the release t
 [Sideloadly](https://sideloadly.io/), [AltStore Classic / AltServer](https://altstore.io/) and [SideStore](https://docs.sidestore.io/) are optional independent tools, not dependencies or verified installation paths for Cabin Direct. Their account, device-pairing, refresh and sometimes local-network/VPN requirements differ. Do not remove the embedded extension, silently rewrite App Group / custom Info.plist mappings, share credentials with this project, replace an existing VPN or assume free re-signing preserves these capabilities. Inspect the resulting signed entitlements and mappings exactly as above; no compatible outcome is promised and no purchase is required by this guide.
 
 ## First-device acceptance checklist
+
+Before installing, the default branch's `npm run check:install -- --app /absolute/path/CabinDirect.app` can inspect your locally signed, extracted product. It checks signature integrity, profile dates and known identifier/entitlement relationships, outputs a redacted report, and performs no signing or installation. `passed: true` means **consistency checks only**: account tier, Apple profile trust, signing-certificate membership in the profile, registration of your specific device, actual install, renewal and runtime acceptance remain unverified. See [limits and result interpretation](FREE_INSTALL.md#read-only-local-signing-check).
 
 There is no phone available for the project's current remote work. Perform these checks yourself on an authorized device before treating the preview as usable:
 
