@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { checkInstallReadiness } from '../lib/install-readiness.mjs';
+import { checkInstallReadiness, resolvedInstallGroup } from '../lib/install-readiness.mjs';
 
 // Synthetic metadata only. Passing fixtures are NOT signed-app/device evidence.
 const now = Date.parse('2026-11-05T12:00:00Z');
@@ -40,6 +40,69 @@ test('identifier remapping is accepted only when both custom references and sign
   const value = fixture();
   const remap = item => JSON.parse(JSON.stringify(item).replaceAll('org.fixture', 'org.renamed'));
   assert.equal(checkInstallReadiness(remap(value), now).passed, true);
+});
+
+function installerFixture() {
+  const value = fixture();
+  for (const target of [value.app, value.extension]) {
+    const original = target.info.CFBundleIdentifier;
+    const actual = original.replace(appID, appID + '.' + team);
+    target.info.CFBundleIdentifier = actual;
+    target.info.ALTBundleIdentifier = original;
+    target.info.ALTAppGroups = [group + '.' + team];
+    target.info.TCInstallerIdentifierResolutionVersion = 1;
+    for (const ent of [target.signedEntitlements, target.profile.entitlements]) {
+      ent['application-identifier'] = team + '.' + actual;
+      ent[GROUP] = [group + '.' + team];
+    }
+  }
+  return value;
+}
+test('recognized installer metadata resolves only products with the new runtime marker', () => {
+  const value = installerFixture();
+  assert.equal(checkInstallReadiness(value, now).passed, true);
+  delete value.app.info.TCInstallerIdentifierResolutionVersion;
+  assert.equal(checkInstallReadiness(value, now).passed, false, 'old previews do not contain the runtime resolver');
+});
+test('default public ID with a verified matching team suffix is not mistaken for an unpersonalized preview', () => {
+  const value = JSON.parse(JSON.stringify(installerFixture()).replaceAll(appID, 'com.example.teslacompanion.direct'));
+  assert.equal(checkInstallReadiness(value, now).passed, true);
+  value.app.info.CFBundleIdentifier = 'com.example.teslacompanion.direct.ZZZZZZZZZZ';
+  assert.ok(checkInstallReadiness(value, now).failures.includes('host_identifier_not_personalized'));
+});
+test('installer group metadata is a bounded array, never a dictionary or ambiguous match', () => {
+  const info = installerFixture().app.info;
+  assert.equal(resolvedInstallGroup(info), group + '.' + team);
+  for (const groups of [{ [group]: group + '.' + team }, [], [null], [group, group], [group, group + '.' + team],
+    ['group.other.value'], [group + '.abc123def4'], Array(33).fill(group), [group + '\n']]) {
+    assert.equal(resolvedInstallGroup({ ...info, ALTAppGroups: groups }), undefined);
+  }
+  for (const marker of [true, '1', 2, undefined]) {
+    assert.equal(resolvedInstallGroup({ ...info, TCInstallerIdentifierResolutionVersion: marker }), undefined);
+  }
+});
+test('installer metadata does not replace actual signed entitlement and profile agreement', () => {
+  const value = installerFixture();
+  value.extension.profile.entitlements[GROUP] = [group];
+  assert.ok(checkInstallReadiness(value, now).failures.includes('extension_shared_group_not_provisioned'));
+  value.extension.profile.entitlements[GROUP] = [group + '.' + team];
+  value.app.signedEntitlements[GROUP] = [group];
+  assert.ok(checkInstallReadiness(value, now).failures.includes('app_shared_group_not_provisioned'));
+});
+test('foreign or already remapped original markers fail closed instead of guessing', () => {
+  for (const original of ['org.foreign.app', appID + '.' + team]) {
+    const value = installerFixture();
+    value.app.info.ALTBundleIdentifier = original;
+    assert.ok(checkInstallReadiness(value, now).failures.includes('broadcast_reference_mismatch'));
+  }
+});
+test('newline and path-shaped identifiers are not whole valid identifiers', () => {
+  for (const suffix of ['\n', '/broadcast', '..', ' ']) {
+    const value = fixture();
+    value.app.info.CFBundleIdentifier += suffix;
+    assert.equal(checkInstallReadiness(value, now).passed, false);
+    assert.equal(resolvedInstallGroup({ TCAppGroupIdentifier: group + suffix }), undefined);
+  }
 });
 const cases = [
   ['host_identifier_not_personalized', f => { f.app.info.CFBundleIdentifier = 'com.example.cabin'; }],

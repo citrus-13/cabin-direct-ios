@@ -29,6 +29,28 @@ Source evidence: SideStore 0.6.4's pinned [SideSign entitlement reader](https://
 
 The required relationships are listed in [INSTALL.md](INSTALL.md#recommended-build-from-source-with-xcode). Keep the extension. Never strip required entitlements to make an installer report success, add unrelated capabilities, buy membership, use another publisher's certificate, or claim a free route is proven without device testing. Apple's [entitlement troubleshooting guide](https://developer.apple.com/library/archive/technotes/tn2415/_index.html) explains why the signed entitlements and embedded profile—not only source settings—matter.
 
+### New source compatibility, not a retroactive preview.2 fix
+
+The later default-branch source marks both products with numeric `TCInstallerIdentifierResolutionVersion = 1`. It supports a conservative subset of AltStore/SideStore metadata:
+
+- `ALTAppGroups` is an array of final group identifiers, **not** an old-to-new dictionary. Exactly one valid candidate must equal the configured group or that group plus a ten-character uppercase alphanumeric team suffix. Missing installer metadata keeps the Xcode-configured value; malformed or ambiguous metadata fails closed.
+- The host reads the actual identifier from its fixed bundled `DirectBroadcastExtension.appex`, validates nesting and ReplayKit configuration, and checks both original-identity markers for a remapped extension. If resolution fails, the system-picker control is disabled instead of offering an unrelated extension.
+- The OS must still grant shared-container access. These plist values do not confer an entitlement. The local signed-product checker separately requires profile/signature agreement. Its narrow public-default exception requires the expected original identifier and the actual signing team's suffix.
+
+Pinned upstream evidence: [AltStore v2.3 metadata injection](https://github.com/altstoreio/AltStore/blob/04311c072d3f587a93335235d324a9fafca8ecf9/AltStore/Operations/ResignAppOperation.swift#L112-L128), [group naming](https://github.com/altstoreio/AltStore/blob/04311c072d3f587a93335235d324a9fafca8ecf9/AltStore/Operations/FetchProvisioningProfilesOperation.swift#L442-L444), [SideStore 0.6.4 injection](https://github.com/SideStore/SideStore/blob/f93a95c079057090bea355453ef24f6e8668dfa9/SideStore/Core/Operations/PipelineOperations/ResignAppOperation.swift#L148-L169).
+
+Custom/case-corrected group names and re-importing an already-remapped IPA can fail this deliberately narrow policy. `ALTBundleIdentifier` is not immutable: full re-signing may replace it from that operation's input. AltStore's [profile-only refresh](https://github.com/altstoreio/AltStore/blob/04311c072d3f587a93335235d324a9fafca8ecf9/AltStore/Operations/RefreshAppOperation.swift#L79-L94) differs from full re-import. No renewal route has been tested on a real Cabin installation. Do not weaken checks or delete user data just to force a retry.
+
+### Identity-free entitlement packaging experiment
+
+The separate manual [installer-input workflow](https://github.com/citrus-13/cabin-direct-ios/actions/workflows/cabin-installer-check.yml) compiles a fresh public **Release** build and runs all source/native tests before checking metadata packaging. It requires the expected public source identifiers and new runtime marker; old preview.2 products are rejected.
+
+`scripts/prepare-installer-input.mjs` copies only the verified fresh unsigned app and its one extension into a new external output directory, then uses the fixed identity `codesign --sign -` to attach only the requested App Group entitlement. It verifies both resulting metadata signatures and reads back the entitlement. The originals remain unchanged. Existing signatures, profiles, private credentials, malformed binaries, uncommitted source and output overwrites are rejected.
+
+This is an **identity-free ad-hoc code signature, NOT Apple's Ad Hoc distribution**. No Apple account, certificate, membership, provisioning profile or signing authority is supplied. The resulting IPA remains **not directly installable**; it is input for a later separately authorized personal signing experiment. Entitlement visibility does not prove a third-party installer will preserve/provision it.
+
+The workflow has read-only repository permissions, no account secrets, no artifact upload and no release publication. Temporary candidates disappear with the runner; the run records source and binary hashes. Inspect the final run result: the existence of the workflow or a passing synthetic test is not proof the packaging experiment succeeded. Historical downloadable unsigned releases are not replaced.
+
 ## Read-only local signing check
 
 After signing **personally and locally** through an authorized route, use the default branch's tool on the resulting `CabinDirect.app` (for an IPA, use your trusted archive utility to inspect/extract your own package first):

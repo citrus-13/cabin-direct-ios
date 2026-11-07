@@ -12,6 +12,8 @@ Start with the [installation and signing guide](docs/INSTALL.md), preferably bui
 
 Development can continue through the public repository's free standard GitHub macOS runner without local Xcode. Read the [free-install and renewal plan](docs/FREE_INSTALL.md) for the separate device/signing gates and the new read-only `npm run check:install -- --app /absolute/path/CabinDirect.app` check. Neither cloud compilation nor that consistency check installs an app or proves a free re-signing route works.
 
+Later source also includes conservative AltStore/SideStore identifier resolution and a separate [identity-free entitlement-packaging experiment](docs/FREE_INSTALL.md#identity-free-entitlement-packaging-experiment). These changes are **not in preview.2**. That experiment uses no Apple account and publishes no replacement IPA; its metadata signature is not Apple distribution signing or installation/renewal evidence.
+
 ## Native app flow
 
 Remote App Store preparation continues in the [draft submission kit](docs/store/README.md). The v0.4.0-preview.2 source includes native privacy/support navigation, accessibility improvements and a separate Simulator UI-test scheme; preview.1 is historical. The [exact-commit store-preparation run](https://github.com/citrus-13/cabin-direct-ios/actions/runs/41927097055) passed three Simulator UI tests and produced eight original Simulator screenshots. This is Simulator evidence, not phone, capture or vehicle acceptance.

@@ -1,0 +1,92 @@
+name: Cabin Direct identity-free installer-input experiment
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cabin-installer-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public_installer_input:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.repository.private == false && github.repository == 'citrus-13/cabin-direct-ios' && github.ref == 'refs/heads/codex/public-build' }}
+    runs-on: xcode-27
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CABIN_IOS_CONFIGURATION: Release
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_INSTALL_UPGRADE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+    steps:
+      - name: Prepare bounded ephemeral paths
+        run: |
+          if [[ "$RUNNER_TEMP" != /* || "$RUNNER_TEMP" == *$'\n'* || "$RUNNER_TEMP" == *$'\r'* ]]; then
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/cabin-ci-tmp" "$RUNNER_TEMP/cabin-installer-tests"
+          printf '%s\n' \
+            "TMPDIR=$RUNNER_TEMP/cabin-ci-tmp" \
+            "CABIN_IOS_WORK_DIR=$RUNNER_TEMP/cabin-installer-build" \
+            "CABIN_IOS_TEST_WORK_DIR=$RUNNER_TEMP/cabin-installer-tests" \
+            "npm_config_cache=$RUNNER_TEMP/cabin-npm-cache" >> "$GITHUB_ENV"
+      - name: Checkout reviewed public source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Select Node 22 without dependency caching
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Prepare free compiler
+        run: |
+          if ! brew list --versions xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodebuild -version
+          xcodegen --version
+      - name: Install locked dependencies without scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check syntax
+        run: npm run check
+      - name: Compile actual unsigned Release app and extension
+        run: node scripts/build-ios.mjs
+      - name: Run all source and native contract tests
+        run: |
+          npm test 2>&1 | tee "$RUNNER_TEMP/cabin-installer-tests.tap"
+          node --input-type=module <<'TEST_JS'
+          import fs from 'node:fs';
+          const tap = fs.readFileSync(process.env.RUNNER_TEMP + '/cabin-installer-tests.tap', 'utf8');
+          const counts = {};
+          for (const label of ['tests', 'pass', 'fail', 'skipped', 'cancelled']) {
+            const matches = [...tap.matchAll(new RegExp('^# ' + label + ' ([0-9]+)$', 'gm'))];
+            if (matches.length !== 1) throw new Error('Ambiguous test totals');
+            counts[label] = Number(matches[0][1]);
+          }
+          if (counts.tests < 1 || counts.tests !== counts.pass || counts.fail || counts.skipped || counts.cancelled) {
+            throw new Error('All tests must pass with no skips');
+          }
+          console.log(JSON.stringify({ source_tests: counts }));
+          TEST_JS
+      - name: Verify identity-free entitlement metadata in copies only
+        run: |
+          node scripts/prepare-installer-input.mjs --build-dir "$CABIN_IOS_WORK_DIR" --out "$RUNNER_TEMP/cabin-installer-input"
+          node --input-type=module <<'SUMMARY_JS'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/cabin-installer-input/INSTALLER-INPUT.json', 'utf8'));
+          if (report.source_commit !== process.env.GITHUB_SHA || report.metadata_signatures_verified !== true) {
+            throw new Error('Installer-input evidence mismatch');
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            '## Identity-free packaging experiment\n\n' +
+            'Not Apple Ad Hoc distribution; no Apple account or provisioning. No installation, renewal or vehicle test.\n\n' +
+            'No artifact upload; temporary copies disappear with the runner.\n\n' +
+            '<pre>' + JSON.stringify(report, null, 2) + '</pre>\n');
+          SUMMARY_JS

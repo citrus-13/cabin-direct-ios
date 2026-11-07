@@ -1,8 +1,65 @@
 import Foundation
+import CoreFoundation
 import Security
 #if canImport(Darwin)
 import Darwin
 #endif
+
+/// Resolve only this app's known installer metadata. Metadata is not authorization:
+/// the OS must still grant container access and validate both signed products.
+enum DirectInstallationIdentifiers {
+    static func hasResolver(_ info: [String: Any]) -> Bool {
+        guard let value = info["TCInstallerIdentifierResolutionVersion"] as? NSNumber,
+              CFGetTypeID(value) != CFBooleanGetTypeID() else { return false }
+        return value == NSNumber(value: 1)
+    }
+    static func valid(_ value: String) -> Bool {
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        return value.utf8.count <= 255 && parts.count >= 2 && parts.allSatisfy { part in
+            !part.isEmpty && part.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 }
+        }
+    }
+
+    static func appGroup(info: [String: Any]) -> String? {
+        guard let requested = info["TCAppGroupIdentifier"] as? String,
+              valid(requested), requested.hasPrefix("group.") else { return nil }
+        guard let raw = info["ALTAppGroups"] else { return requested }
+        // AltStore/SideStore inject an array of final groups, not an old→new map.
+        guard hasResolver(info),
+              let groups = raw as? [String], !groups.isEmpty, groups.count <= 32,
+              groups.allSatisfy({ valid($0) && $0.hasPrefix("group.") }) else { return nil }
+        let candidates = groups.filter { group in
+            if group == requested { return true }
+            guard group.hasPrefix(requested + ".") else { return false }
+            let suffix = group.dropFirst(requested.count + 1)
+            return suffix.utf8.count == 10 && suffix.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) }
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    static func broadcastExtension(host: [String: Any], embedded: [String: Any]) -> String? {
+        guard let hostID = host["CFBundleIdentifier"] as? String, valid(hostID),
+              let actual = embedded["CFBundleIdentifier"] as? String, valid(actual), actual.hasPrefix(hostID + "."),
+              let requested = host["TCBroadcastExtensionIdentifier"] as? String, valid(requested),
+              let point = embedded["NSExtension"] as? [String: Any],
+              point["NSExtensionPointIdentifier"] as? String == "com.apple.broadcast-services-upload",
+              point["RPBroadcastProcessMode"] as? String == "RPBroadcastProcessModeSampleBuffer",
+              point["NSExtensionPrincipalClass"] as? String == "DirectBroadcastExtension.DirectSampleHandler" else { return nil }
+        if requested == actual { return actual }
+        guard hasResolver(host), hasResolver(embedded),
+              let originalHost = host["ALTBundleIdentifier"] as? String, valid(originalHost),
+              requested == originalHost + ".broadcast",
+              embedded["ALTBundleIdentifier"] as? String == requested else { return nil }
+        return actual
+    }
+
+    static func bundledBroadcastExtension(in bundle: Bundle = .main) -> String? {
+        guard let plugins = bundle.builtInPlugInsURL,
+              let embedded = Bundle(url: plugins.appendingPathComponent("DirectBroadcastExtension.appex", isDirectory: true)),
+              let hostInfo = bundle.infoDictionary, let extensionInfo = embedded.infoDictionary else { return nil }
+        return broadcastExtension(host: hostInfo, embedded: extensionInfo)
+    }
+}
 
 enum DirectLyricMode: String, Codable, CaseIterable, Identifiable {
     case mirror, visibleText
@@ -198,7 +255,7 @@ enum DirectSessionStore {
         #if DIRECT_SESSION_STORE_TEST
         guard let root = testContainer else { throw DemoError.message("Missing test-only container") }
         #else
-        guard let group = Bundle.main.object(forInfoDictionaryKey: "TCAppGroupIdentifier") as? String,
+        guard let group = DirectInstallationIdentifiers.appGroup(info: Bundle.main.infoDictionary ?? [:]),
               let root = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) else {
             throw DemoError.message("独立版 App Group 不可用。需要为应用与扩展配置相同签名能力。")
         }

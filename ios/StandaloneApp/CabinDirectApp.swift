@@ -632,9 +632,13 @@ private struct DirectDiagnosticsView: View {
 struct DirectBroadcastPicker: UIViewRepresentable {
     func makeUIView(context: Context) -> RPSystemBroadcastPickerView {
         let view = RPSystemBroadcastPickerView(frame: .zero)
-        view.preferredExtension = Bundle.main.object(forInfoDictionaryKey: "TCBroadcastExtensionIdentifier") as? String
+        let identifier = DirectInstallationIdentifiers.bundledBroadcastExtension()
+        view.preferredExtension = identifier
+        // A nil preference could offer unrelated broadcast extensions. Fail closed.
+        view.isUserInteractionEnabled = identifier != nil
         view.showsMicrophoneButton = false
-        view.accessibilityLabel = "打开 Cabin Direct 系统广播面板"
+        view.accessibilityLabel = identifier == nil ? "Cabin Direct 广播扩展配置不可用" : "打开 Cabin Direct 系统广播面板"
+        if identifier == nil { view.accessibilityTraits.insert(.notEnabled) }
         view.accessibilityIdentifier = "action.system-broadcast-picker"
         return view
     }

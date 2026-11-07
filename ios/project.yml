@@ -113,6 +113,7 @@ targets:
       path: Config/Direct-App-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct
+        TCInstallerIdentifierResolutionVersion: 1
         CFBundleLocalizations: [zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -159,6 +160,7 @@ targets:
       path: Config/Direct-Broadcast-Info.plist
       properties:
         CFBundleDisplayName: Cabin Direct Screen
+        TCInstallerIdentifierResolutionVersion: 1
         CFBundleLocalizations: [zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

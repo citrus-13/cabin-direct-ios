@@ -17,6 +17,83 @@ func run(_ name: String, _ body: () throws -> Void) {
     print("\(before == failures ? "PASS" : "FAIL") \(name)")
 }
 
+run("Installer group metadata resolves one exact or team-suffixed group, never guesses") {
+    let requested = "group.org.fixture.cabin.direct", renamed = "group.org.fixture.cabin.direct.ABCDE12345"
+    var info: [String: Any] = ["TCAppGroupIdentifier": requested, "TCInstallerIdentifierResolutionVersion": 1]
+    check(DirectInstallationIdentifiers.appGroup(info: info) == requested, "Unmodified Xcode group")
+    for candidate in [requested, renamed] {
+        info["ALTAppGroups"] = ["group.org.unrelated", candidate]
+        check(DirectInstallationIdentifiers.appGroup(info: info) == candidate, "Unique known mapping")
+    }
+    let invalid: [Any] = [[], [requested, renamed], [renamed, renamed], ["group.org.unrelated"],
+        [requested: renamed], renamed, [1], [requested, 1], [requested + ".abcde12345"],
+        [requested + ".ABCDE12345.extra"], [requested + ".ABCDE1234"], [requested + ".ABCDE12345\n"],
+        Array(repeating: renamed, count: 33)]
+    for value in invalid {
+        info["ALTAppGroups"] = value
+        check(DirectInstallationIdentifiers.appGroup(info: info) == nil, "Ambiguous/malformed group rejected")
+    }
+    for value in ["", "group..test", "group.$(VALUE)", "group.org/test", "group.org.test\n", String(repeating: "a", count: 256)] {
+        check(DirectInstallationIdentifiers.appGroup(info: ["TCAppGroupIdentifier": value]) == nil, "Invalid request rejected")
+    }
+    for value: Any in [1, true, "1", 2] {
+        let xml = try PropertyListSerialization.data(fromPropertyList: ["TCInstallerIdentifierResolutionVersion": value], format: .xml, options: 0)
+        let decoded = try PropertyListSerialization.propertyList(from: xml, options: [], format: nil) as! [String: Any]
+        check(DirectInstallationIdentifiers.hasResolver(decoded) == (type(of: value) == Int.self && value as? Int == 1), "Real plist marker type")
+    }
+    check(!DirectInstallationIdentifiers.hasResolver([:]), "Missing marker")
+}
+
+run("Embedded broadcast discovery keeps identity and ReplayKit checks after re-signing") {
+    let original = "org.fixture.cabin.direct", actual = "org.fixture.cabin.direct.ABCDE12345"
+    var host: [String: Any] = ["CFBundleIdentifier": original, "TCInstallerIdentifierResolutionVersion": 1, "TCBroadcastExtensionIdentifier": original + ".broadcast"]
+    var embedded: [String: Any] = ["CFBundleIdentifier": original + ".broadcast", "TCInstallerIdentifierResolutionVersion": 1, "NSExtension": [
+        "NSExtensionPointIdentifier": "com.apple.broadcast-services-upload",
+        "RPBroadcastProcessMode": "RPBroadcastProcessModeSampleBuffer",
+        "NSExtensionPrincipalClass": "DirectBroadcastExtension.DirectSampleHandler"]]
+    check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == original + ".broadcast", "Original extension")
+    host["CFBundleIdentifier"] = actual; host["ALTBundleIdentifier"] = original
+    embedded["CFBundleIdentifier"] = actual + ".broadcast"; embedded["ALTBundleIdentifier"] = original + ".broadcast"
+    check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == actual + ".broadcast", "Installed ID, not stale preference")
+    let good = embedded
+    for badID in ["org.other.broadcast", actual + "evil.broadcast", actual + ".broadcast\n", "$(VALUE)"] {
+        embedded["CFBundleIdentifier"] = badID
+        check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == nil, "Foreign or malformed extension rejected")
+    }
+    embedded = good; embedded.removeValue(forKey: "ALTBundleIdentifier")
+    check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == nil, "Missing original identity rejected")
+    embedded = good; embedded["NSExtension"] = ["NSExtensionPointIdentifier": "unrelated"]
+    check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == nil, "Wrong extension type rejected")
+    embedded = good; host["ALTBundleIdentifier"] = "org.other.host"
+    check(DirectInstallationIdentifiers.broadcastExtension(host: host, embedded: embedded) == nil, "Foreign original host rejected")
+}
+
+run("Packaged bundle discovery opens only the fixed embedded broadcast extension") {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("cabin-bundle-fixtures-" + UUID().uuidString, isDirectory: true)
+    for mode in ["valid", "missing", "foreign"] {
+        let hostID = "org.fixture." + mode
+        let app = root.appendingPathComponent(mode + ".app", isDirectory: true)
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        let host: [String: Any] = ["CFBundleIdentifier": hostID, "CFBundlePackageType": "APPL", "CFBundleExecutable": "CabinDirect",
+                                  "TCBroadcastExtensionIdentifier": hostID + ".broadcast"]
+        let data = try PropertyListSerialization.data(fromPropertyList: host, format: .xml, options: 0)
+        try data.write(to: app.appendingPathComponent("Info.plist"))
+        if mode != "missing" {
+            let ext = app.appendingPathComponent("PlugIns/DirectBroadcastExtension.appex", isDirectory: true)
+            try FileManager.default.createDirectory(at: ext, withIntermediateDirectories: true)
+            let info: [String: Any] = ["CFBundleIdentifier": mode == "foreign" ? "org.unrelated.broadcast" : hostID + ".broadcast",
+                "CFBundlePackageType": "XPC!", "CFBundleExecutable": "DirectBroadcastExtension", "NSExtension": [
+                    "NSExtensionPointIdentifier": "com.apple.broadcast-services-upload",
+                    "RPBroadcastProcessMode": "RPBroadcastProcessModeSampleBuffer",
+                    "NSExtensionPrincipalClass": "DirectBroadcastExtension.DirectSampleHandler"]]
+            try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: ext.appendingPathComponent("Info.plist"))
+        }
+        guard let bundle = Bundle(url: app) else { check(false, "Fixture bundle opens"); continue }
+        let result = DirectInstallationIdentifiers.bundledBroadcastExtension(in: bundle)
+        check(result == (mode == "valid" ? hostID + ".broadcast" : nil), "Packaged discovery result")
+    }
+}
+
 run("Privacy defaults and settings roundtrip") {
     let settings = try DirectSettings().validated()
     check(settings.lyricMode == .mirror, "OCR is opt-in")
