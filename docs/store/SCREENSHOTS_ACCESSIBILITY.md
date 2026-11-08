@@ -4,7 +4,7 @@ Actual simulator UI is remote evidence, not physical iPhone installation, Replay
 
 Use an installed Pro Max simulator at an accepted 6.9-inch portrait size: 1320 × 2868, 1290 × 2796 or 1260 × 2736. Preserve the source commit, runtime/model, test identity, attachment name, dimensions and SHA-256. Do not resize unsupported images to hide their origin.
 
-Candidate real-UI screenshots: Connect/inactive, Share/optional visible-text controls, native Privacy, Help/support in dark appearance. Do not fabricate active capture, pairing or vehicle receipt. These are developer-evidence images, not finalized store selections; truthful developer-stage warnings remain.
+Candidate 0.5.1 real-UI screenshots: the inactive Share home, functional Settings, the optional text-region editor, Privacy and About, including dark appearance and accessibility text size. Historical attachment names remain stable: `connect-light` is now the Share home, `share-light` is Settings and `help-dark` is dark Settings. Do not fabricate active capture, pairing or vehicle receipt. These are developer-evidence images, not finalized store selections; personal-preview status remains in About, while diagnostic/testing copy is no longer in the main UI.
 
 Before submission, resolve the gates and choose one to ten accurate, matching-language screenshots of the exact version, accepted dimensions and RGB/no alpha. See [Apple's specifications](https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/) and [accurate-metadata rules](https://developer.apple.com/app-store/review/guidelines/).
 

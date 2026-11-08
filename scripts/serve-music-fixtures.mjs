@@ -222,9 +222,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     const fixture = createMusicFixtureServer();
     const address = await fixture.listen();
-    process.stdout.write(`${JSON.stringify({ ...address, simulated: true, banner: FIXTURE_BANNER, sourceAssets: fixture.sourceAssets })}\n`);
     const shutdown = async () => { await fixture.close(); process.exitCode = 0; };
     process.once('SIGTERM', shutdown);
     process.once('SIGINT', shutdown);
+    // Announce readiness only after shutdown handlers are installed. A caller
+    // may immediately stop the fixture as soon as it receives this first line.
+    process.stdout.write(`${JSON.stringify({ ...address, simulated: true, banner: FIXTURE_BANNER, sourceAssets: fixture.sourceAssets })}\n`);
   }
 }

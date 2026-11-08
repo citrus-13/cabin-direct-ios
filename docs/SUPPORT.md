@@ -6,9 +6,9 @@ This is public self-help for the developer preview, not a staffed support servic
 
 Use your own trusted Wi-Fi/hotspot. The iPhone and receiver browser must actually reach one another; a matching network name alone is insufficient. Guest isolation, VPN routing and vehicle-browser policy can prevent access. The app does not change your VPN, guess hotspot addresses, open public ports or provide a developer relay.
 
-Start with Connect → original sample while the iPhone app stays foregrounded. On a second browser device, enter the displayed local address, then the separate six-digit code within 120 seconds. This is generated original content, not capture or proof of Tesla compatibility.
+In current 0.5.1 source, open **投屏 → 开始投屏**, review the short sharing notice and personally confirm the iOS system broadcast panel. Settings are saved when you start; there is no separate save or diagnostic step. On the receiver browser, enter the local address shown in Cabin and the separate six-digit code within 120 seconds. Display only content that permits recording. Audio stays with your original player/audio route.
 
-For real sharing, stop the sample, open Share, save settings, review privacy and personally confirm the iOS system broadcast panel. Display only content that permits recording. Audio stays with your original player/audio route.
+**设置** contains music recognition, optional lyrics and visible-text extraction. Those choices apply to the next broadcast. The original sample and diagnostic screens are no longer part of the app interface; their development fixtures remain in the source tests.
 
 Current source also offers [experimental music](MUSIC.md), absent from preview.3/preview.2: both app-audio recognition and separate LRCLIB access default OFF. It consumes no microphone buffers, saves no recording and relays no audio. Recognition only works with system-provided usable app audio and actual Shazam service admission, not every music/streaming app. Manual/Shortcut import is draft-only, leaves network access OFF and never starts capture.
 
@@ -28,9 +28,9 @@ Current source also offers [experimental music](MUSIC.md), absent from preview.3
 
 ## Diagnostics and data choices
 
-Help → redacted diagnostics offers an explicit local copy action; nothing is uploaded. Review it before independently choosing to send it through a confirmed contact channel. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers.
+Freshness, session matching, expired codes and stop confirmation are handled internally. The interface shows only connection status and short actions when help is needed, not ports, frame counters, heartbeats or diagnostic exports. Nothing is automatically uploaded. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers.
 
-A future report can include app/build version, iOS/browser version, non-sensitive reproduction steps, and sample versus real-broadcast mode. Do not claim phone/vehicle success from simulator or compile results.
+A future report can include app/build version from 设置 → 关于 Cabin, iOS/browser version and non-sensitive reproduction steps. Do not claim phone/vehicle success from simulator or compile results.
 
 End sharing and confirm cleanup, or use system recording controls. Close/unpair the receiver. Normal stop does not erase preferences. iOS controls app removal, permission and clipboard expiry; the app cannot delete receiver copies. Read the [privacy draft](PRIVACY.md) for retention/interruption limits.
 

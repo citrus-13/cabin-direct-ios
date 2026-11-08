@@ -39,19 +39,19 @@
     const text = value => typeof value === 'string' ? value.slice(0, 200) : '';
     const hasTrack = ['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status);
     $('musicPanel').hidden = false;
-    $('musicSource').textContent = music.source === 'manual' ? '手动选曲 · 进度估算' : 'ShazamKit识曲 · 进度估算';
+    $('musicSource').textContent = music.source === 'manual' ? '手动选曲' : '自动识曲';
     $('musicTitle').textContent = hasTrack ? text(music.title) : music.status === 'unavailable' ? '识曲服务不可用' : music.status === 'recognizing' ? '正在识别音乐' : '等待应用音频';
     $('musicArtist').textContent = hasTrack ? text(music.artist) : '';
     if (hasTrack && typeof music.position === 'number' && Number.isFinite(music.position) && music.position >= 0 && music.position <= 86400) {
       const seconds = Math.floor(music.position);
-      $('musicPosition').textContent = `估算进度 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+      $('musicPosition').textContent = `约 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     }
     const lines = music.status === 'lyrics' && Array.isArray(music.lines) ? music.lines.slice(0, 24).filter(line => typeof line === 'string') : [];
     $('musicLines').replaceChildren(...lines.map(line => { const node = document.createElement('p'); node.textContent = text(line); return node; }));
-    $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 未匹配到歌词；不影响屏幕共享。' :
-      music.status === 'loading' ? '正在查询 LRCLIB 歌词。' : music.status === 'lyrics' ? '歌词来源：LRCLIB · 录音版本未核验，按估算进度显示，不保证与播放同步。' :
-      '识曲结果与屏幕文字识别独立；不保证持续识别或歌词同步。';
-    $('musicMessage').textContent = typeof music.message === 'string' ? music.message.slice(0, 512) : '';
+    $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 暂无匹配歌词。' :
+      music.status === 'loading' ? '正在获取 LRCLIB 歌词。' : music.status === 'lyrics' ? '歌词：LRCLIB · 估算显示，可能不同步。' : '';
+    $('musicMessage').textContent = music.status === 'unavailable' ? '请在 iPhone 检查识曲设置，或手动选曲。' :
+      music.status === 'waiting' ? '请在手机播放音乐，并开启识曲。' : music.status === 'recognizing' ? '请保持音乐播放。' : '';
   }
   async function request(path, options = {}) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 2500);
@@ -138,7 +138,8 @@
       const age = Date.now() / 1000 - Number(state.frameUpdatedAt);
       const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) && age >= -2 && age <= 4 && state.width > 0;
       displayMusic(state);
-      $('captureNote').textContent = demo ? '原创合成内容 · 同一真实配对与传输通道 · 非手机屏幕捕获' : state.message || (live ? '画面来自用户启动的 iPhone 屏幕广播' : '广播没有可用的新画面');
+      $('captureNote').textContent = demo ? '原创合成演示，非手机画面。' : live ? '正在接收手机画面。' :
+        state.captureState === 'paused' ? '请在 iPhone 恢复共享。' : '请在 iPhone 开始共享。';
       if (!live) {
         const paused = state.captureState === 'paused';
         clearImage(paused ? '来源已暂停' : '等待新画面', '旧画面与文字已隐藏，请在 iPhone 上检查广播或演示。');
@@ -149,13 +150,13 @@
         const textFresh = Date.now() / 1000 - Number(state.lyricUpdatedAt) <= 4 && Number(state.lyricUpdatedAt) <= Date.now() / 1000 + 2;
         const lines = textFresh && Array.isArray(state.lyricLines) ? state.lyricLines.slice(0, 24) : [];
         $('textHeading').textContent = demo ? 'DEMO · 原创示例文字' : '可见文字识别';
-        $('textNote').textContent = demo ? '合成演示内容，不是实机识别结果。' : '从共享画面识别；不代表当前高亮歌词。';
+        $('textNote').textContent = demo ? '合成示例，不是实机识别结果。' : '屏幕文字，非同步歌词。';
         $('lines').replaceChildren(...lines.map(line => { const node = document.createElement('p'); node.textContent = String(line).slice(0, 200); return node; }));
         $('textEmpty').hidden = lines.length > 0;
         $('textEmpty').textContent = state.lyricState === 'disabled' ? '文字识别未开启' : '当前没有可见文字';
       }
       schedule(1000);
-    } catch (error) { if (current(session)) { failures++; disconnected(); $('captureNote').textContent = error.message; schedule(Math.min(1000 * 2 ** failures, 10000)); } }
+    } catch (error) { if (current(session)) { failures++; disconnected(); $('captureNote').textContent = error.message === '连接数量已达上限，请关闭其他接收页面。' ? error.message : '请检查 iPhone 与本页是否连接到同一热点或 Wi-Fi。'; schedule(Math.min(1000 * 2 ** failures, 10000)); } }
     finally { if (pollBusy === ticket) pollBusy = null; }
   }
   function disconnected() { if (!enabled) return; clearImage('连接已断开', '旧画面与文字已隐藏。确认手机与接收页面处于同一可信热点或 Wi-Fi，且来源仍运行。'); clearMusic(); status('连接中断 · 正在重试'); }

@@ -53,15 +53,35 @@ test('native demo uses production transport, original pixels and foreground-only
   assert.match(demo, /applicationState == \.active/);
   assert.doesNotMatch(demo, /saveSession\(|saveSettings\(|setStatus\(|CapturePipeline|RPScreenRecorder|ReplayKit/);
   const app = source('ios/StandaloneApp/CabinDirectApp.swift');
-  assert.match(app, /phase != \.active \{ demo\.stop/);
-  assert.match(app, /model\.active, demo\.running \{ demo\.stop/);
+  assert.doesNotMatch(app, /demo\.start|@StateObject private var demo/);
+  assert.match(app, /if phase == \.active \{ model\.refresh\(\) \}/);
 });
 
-test('diagnostic export does not interpolate session secrets, addresses or arbitrary screen state', () => {
-  const diagnostic = source('ios/StandaloneApp/CabinDirectApp.swift').split('private var diagnosticText: String')[1].split('var body: some View')[0];
-  assert.ok(diagnostic);
-  assert.doesNotMatch(diagnostic, /\.token|\.pairingCode|\.sessionID|\.lyricLines|\.message|addresses\.joined/);
+test('diagnostics remain internal and cannot expose arbitrary runtime state through the product UI', () => {
+  const app = source('ios/StandaloneApp/CabinDirectApp.swift');
+  const view = app.split('struct DirectSetupView: View {')[1];
+  assert.ok(view);
+  assert.doesNotMatch(view, /DirectDiagnosticsView|diagnosticText|action\.diagnostics|help\.diagnostics/);
+  assert.doesNotMatch(view, /Text\(model\.message\)|Text\(status\.message\)|Text\(demo\.message\)|status\.frames|measuredFPS/);
+  assert.match(app, /func refresh\(\)/);
+  assert.match(app, /next\.isCurrent/);
   assert.match(source('ios/StandaloneApp/CabinDirectApp.swift'), /\.localOnly: true, \.expirationDate:/);
+});
+
+test('simplified start validates settings but still requires fresh consent and the system picker', () => {
+  const app = source('ios/StandaloneApp/CabinDirectApp.swift');
+  const prepare = app.split('private func prepareBroadcast()')[1].split('private var broadcastSheet')[0];
+  const sheet = app.split('private var broadcastSheet')[1].split('private var settingsView')[0];
+  assert.match(prepare, /guard !settingsLocked else \{ return \}/);
+  assert.match(prepare, /model\.save\(\)[\s\S]*guard model\.saved else[\s\S]*return/);
+  assert.match(prepare, /acknowledged = false[\s\S]*showBroadcast = true/);
+  assert.doesNotMatch(prepare, /startCapture|startRecording|sendActions|\.start\(/);
+  assert.match(sheet, /Toggle\("我已停车，并同意共享屏幕", isOn: \$acknowledged\)/);
+  assert.match(sheet, /model\.saved && acknowledged && !model\.active && !model\.stopPending/);
+  assert.match(sheet, /HTTP 未加密/);
+  assert.match(app, /model\.requestStop\(\)[\s\S]*actionNotice = model\.stopPending \? nil : "请点 iPhone 顶部的录屏标记停止投屏。"/);
+  assert.match(app, /guard let value = model\.status, value\.isCurrent else \{ return nil \}/);
+  assert.match(app, /model\.session\?\.id == status\.sessionID else \{ return \[\] \}/);
 });
 
 test('original application icon is opaque RGB at 1024 square', () => {

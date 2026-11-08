@@ -13,18 +13,19 @@ final class CabinDirectUITests: XCTestCase {
         let app = launch(appearance: .light)
         defer { app.terminate(); XCUIDevice.shared.appearance = originalAppearance }
 
-        XCTAssertTrue(element("connect.headline", in: app).waitForExistence(timeout: 5))
+        assertSimpleHome(in: app)
         attach("connect-light", from: app)
 
-        tapTab("tab.share", label: "共享", in: app)
+        tapTab("tab.settings", label: "设置", in: app)
+        XCTAssertTrue(element("screen.settings", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(app.switches["setting.visible-text"].waitForExistence(timeout: 5))
         attach("share-light", from: app)
         assertMusicDefaults(in: app)
+        assertNoDiagnostics(in: app)
 
-        tapTab("tab.help", label: "帮助", in: app)
         tap("help.privacy", in: app)
         XCTAssertTrue(element("privacy.heading", in: app).waitForExistence(timeout: 5))
-        XCTAssertTrue(element("privacy.heading", in: app).label.contains("草稿"))
+        XCTAssertEqual(element("privacy.heading", in: app).label, "隐私说明")
         attach("privacy-light", from: app)
 
         back(in: app)
@@ -32,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.5.0（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.5.1（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -42,12 +43,14 @@ final class CabinDirectUITests: XCTestCase {
         let app = launch(appearance: .light)
         defer { app.terminate(); XCUIDevice.shared.appearance = originalAppearance }
 
-        tapTab("tab.share", label: "共享", in: app)
+        tapTab("tab.settings", label: "设置", in: app)
         let visibleText = app.switches["setting.visible-text"]
         XCTAssertTrue(visibleText.waitForExistence(timeout: 5))
         setOn(visibleText, identifier: "setting.visible-text", in: app)
         XCTAssertEqual(switchValue(visibleText), "1",
                        "The real opt-in must be on before looking for ROI; \(details(visibleText, identifier: "setting.visible-text"))")
+        tap("setting.region.open", in: app)
+        XCTAssertTrue(element("screen.region", in: app).waitForExistence(timeout: 5))
         let identifiedPreview = element("setting.region.preview", in: app)
         let preview = identifiedPreview.waitForExistence(timeout: 3) ? identifiedPreview
             : app.images.matching(NSPredicate(format: "label == %@", "文字识别区域示意图，非实际屏幕预览")).firstMatch
@@ -73,8 +76,9 @@ final class CabinDirectUITests: XCTestCase {
         defer { app.terminate(); XCUIDevice.shared.appearance = originalAppearance }
         print("[STORE-PREP TEST] dark-launched")
 
-        XCTAssertTrue(element("connect.headline", in: app).waitForExistence(timeout: 5))
-        tapTab("tab.help", label: "帮助", in: app)
+        assertSimpleHome(in: app)
+        tapTab("tab.settings", label: "设置", in: app)
+        assertNoDiagnostics(in: app)
         // Use the actual public, session-only appearance control. System device
         // appearance alone did not propagate into this app on the previous run.
         tap("help.support", in: app)
@@ -82,14 +86,14 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.version", in: app).waitForExistence(timeout: 5))
         selectDarkAppearance(in: app)
         print("[STORE-PREP TEST] dark-support-selected")
-        let appearance = element("about.appearance", in: app)
-        reveal(appearance, identifier: "about.appearance", in: app, requiresHittable: false)
+        let appearance = element("setting.appearance", in: app)
+        reveal(appearance, identifier: "setting.appearance", in: app, requiresHittable: false)
         XCTAssertEqual(appearance.value as? String, "深色",
-                       "Actual SwiftUI colorScheme must be dark; \(details(appearance, identifier: "about.appearance"))")
-        let textSize = element("about.text-size", in: app)
-        reveal(textSize, identifier: "about.text-size", in: app, requiresHittable: false)
+                       "Actual SwiftUI colorScheme must be dark; \(details(appearance, identifier: "setting.appearance"))")
+        let textSize = element("about.heading", in: app)
+        reveal(textSize, identifier: "about.heading", in: app, requiresHittable: false)
         XCTAssertEqual(textSize.value as? String, "辅助功能字号",
-                       "Actual SwiftUI Dynamic Type must be accessibility-sized; \(details(textSize, identifier: "about.text-size"))")
+                       "Actual SwiftUI Dynamic Type must be accessibility-sized; \(details(textSize, identifier: "about.heading"))")
         print("[STORE-PREP TEST] dark-environment-verified")
         attach("support-accessibility", from: app)
         print("[STORE-PREP TEST] dark-support-attached")
@@ -104,12 +108,35 @@ final class CabinDirectUITests: XCTestCase {
         print("[STORE-PREP TEST] dark-privacy-attached")
 
         back(in: app)
-        tapTab("tab.share", label: "共享", in: app)
+        tapTab("tab.settings", label: "设置", in: app)
         reveal(app.switches["setting.visible-text"], identifier: "setting.visible-text", in: app)
         XCTAssertTrue(app.switches["setting.visible-text"].isHittable,
                       details(app.switches["setting.visible-text"], identifier: "setting.visible-text"))
         assertMusicDefaults(in: app)
         print("[STORE-PREP TEST] dark-share-controls-verified")
+    }
+
+    @MainActor
+    private func assertSimpleHome(in app: XCUIApplication) {
+        XCTAssertTrue(element("share.headline", in: app).waitForExistence(timeout: 5))
+        XCTAssertEqual(app.tabBars.buttons.count, 2)
+        let share = app.tabBars.buttons["tab.share"]
+        let selected = share.exists ? share : app.tabBars.buttons["投屏"]
+        XCTAssertTrue(selected.isSelected, "Projection must be the default tab")
+        XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
+        assertNoDiagnostics(in: app)
+        for phrase in ["开发验证版", "实机验收", "测试报告", "DEMO", "原创演示"] {
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists,
+                           "The functional home must not show verification or demo copy")
+        }
+    }
+
+    @MainActor
+    private func assertNoDiagnostics(in app: XCUIApplication) {
+        for identifier in ["help.diagnostics", "notice.device-unverified", "action.diagnostics.copy"] {
+            XCTAssertFalse(element(identifier, in: app).exists, "Removed diagnostic entry must not appear")
+        }
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "诊断")).firstMatch.exists)
     }
 
     @MainActor
@@ -119,8 +146,7 @@ final class CabinDirectUITests: XCTestCase {
         let mode = element("setting.music-mode", in: app)
         reveal(mode, identifier: "setting.music-mode", in: app)
         XCTAssertTrue(mode.isHittable, details(mode, identifier: "setting.music-mode"))
-        let selection = mode.label + " " + String(describing: mode.value ?? "")
-        XCTAssertTrue(selection.contains("关闭识曲与网络歌词"), "Music must remain off by default")
+        XCTAssertEqual(mode.value as? String, "关闭", "Music must remain off by default")
         let lyricsConsent = app.switches["consent.network-lyrics"]
         XCTAssertTrue(!lyricsConsent.exists || !isVisible(lyricsConsent, in: app),
                       "Network lyrics consent must not be displayed while music is off")
@@ -150,10 +176,10 @@ final class CabinDirectUITests: XCTestCase {
         reveal(dark, identifier: "setting.appearance.dark", in: app)
         XCTAssertTrue(dark.isEnabled, details(dark, identifier: "setting.appearance.dark"))
         dark.tap()
-        let appearance = element("about.appearance", in: app)
-        reveal(appearance, identifier: "about.appearance", in: app, requiresHittable: false)
+        let appearance = element("setting.appearance", in: app)
+        reveal(appearance, identifier: "setting.appearance", in: app, requiresHittable: false)
         XCTAssertTrue(waitForValue("深色", on: appearance, timeout: 5),
-                      "Public appearance choice must change actual colorScheme; \(details(appearance, identifier: "about.appearance"))")
+                      "Public appearance choice must change actual colorScheme; \(details(appearance, identifier: "setting.appearance"))")
     }
 
     @MainActor
@@ -261,8 +287,8 @@ final class CabinDirectUITests: XCTestCase {
         // Only known non-sensitive controls. Never dump the app tree, session
         // status, addresses, clipboard, pairing credentials or private screenshots.
         let allowed = ["setting.region.preview", "setting.region.x", "setting.region.y", "setting.region.width",
-                       "setting.region.height", "setting.visible-text", "help.privacy", "help.support",
-                       "about.appearance", "about.text-size", "setting.appearance.dark"]
+                       "setting.region.height", "setting.visible-text", "setting.region.open", "help.privacy", "help.support",
+                       "setting.appearance", "about.heading", "setting.appearance.dark"]
         guard allowed.contains(identifier), target.exists else { return "control=\(identifier), exists=\(target.exists)" }
         let label = String(target.label.prefix(120)), value = String(describing: target.value ?? "").prefix(120)
         return "control=\(identifier), type=\(target.elementType.rawValue), label=\(label), value=\(value), frame=\(target.frame), enabled=\(target.isEnabled), hittable=\(target.isHittable)"

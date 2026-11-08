@@ -55,6 +55,25 @@ function viewer({ disconnected = false } = {}) {
 }
 async function startLive(v, source = 'demo') { v.requests[0].resolve(response(200, v.live({ source }))); await flush(); }
 
+test('receiver hides technical caption but retains consent, safety warnings and collapsed help', () => {
+  assert.match(html, /<div class="screen-caption" hidden aria-hidden="true"><span id="streamMode">/);
+  assert.match(html, /id="dimensions"/);
+  const consent = html.match(/<input id="pairConsent"[^>]*>/)?.[0];
+  assert.ok(consent);
+  assert.match(consent, /\brequired\b/);
+  assert.doesNotMatch(consent, /\bchecked\b/);
+  const footer = html.slice(html.indexOf('<footer>'));
+  const visibleWarnings = footer.slice(0, footer.indexOf('<details'));
+  assert.match(visibleWarnings, /仅停车时使用/);
+  assert.match(visibleWarnings, /HTTP 未加密.*可信热点或 Wi-Fi/);
+  const help = footer.match(/<details[^>]*>/)?.[0];
+  assert.ok(help);
+  assert.doesNotMatch(help, /\bopen\b/);
+  assert.match(footer, /<summary>使用说明<\/summary>/);
+  assert.match(footer, /歌词来自 LRCLIB/);
+  assert.match(footer, /不保证录音版本匹配或播放同步/);
+});
+
 test('viewer uses real production MJPEG transport and conspicuous original DEMO labels', async () => {
   const v = viewer(); await startLive(v);
   assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
@@ -65,6 +84,31 @@ test('viewer uses real production MJPEG transport and conspicuous original DEMO 
   assert.equal(v.nodes.get('lines').children[0].textContent, 'Original demo text');
   assert.ok(v.requests.every(request => request.options.credentials === 'same-origin'));
   v.modes[1].fire('click'); assert.equal(v.nodes.get('stage').className, 'stage mode-split');
+});
+
+test('live receiver shows curated guidance, never raw diagnostic messages or DEMO provenance', async () => {
+  const v = viewer();
+  const diagnostic = 'INTERNAL raw audio_count=99 frame_age=3 <script>diagnostic</script>';
+  v.requests[0].resolve(response(200, v.live({ source: 'visible-screen', message: diagnostic }))); await flush();
+  assert.equal(v.nodes.get('demoBanner').hidden, true);
+  assert.equal(v.nodes.get('viewerTitle').textContent, '本地屏幕共享');
+  assert.equal(v.nodes.get('captureNote').textContent, '正在接收手机画面。');
+  assert.equal(v.nodes.get('textNote').textContent, '屏幕文字，非同步歌词。');
+  for (const [captureState, expected] of [['paused', '请在 iPhone 恢复共享。'], ['ended', '请在 iPhone 开始共享。']]) {
+    v.tick(1000);
+    v.requests.at(-1).resolve(response(200, v.live({ source: 'visible-screen', captureState, message: diagnostic }))); await flush();
+    assert.equal(v.nodes.get('captureNote').textContent, expected);
+  }
+  assert.ok([...v.nodes.values()].every(node => !node.textContent.includes(diagnostic)));
+});
+
+test('receiver errors preserve actionable capacity guidance without exposing technical exceptions', async () => {
+  const offline = viewer();
+  offline.requests[0].reject(new Error('INTERNAL TypeError: fetch failed with diagnostic fields')); await flush();
+  assert.equal(offline.nodes.get('captureNote').textContent, '请检查 iPhone 与本页是否连接到同一热点或 Wi-Fi。');
+  const full = viewer();
+  full.requests[0].resolve(response(429)); await flush();
+  assert.equal(full.nodes.get('captureNote').textContent, '连接数量已达上限，请关闭其他接收页面。');
 });
 
 test('disconnect clears content, aborts pending state, and ignores late state JSON', async () => {
@@ -161,10 +205,10 @@ test('music is a separate opt-in panel: fresh audio survives stale video, never 
   assert.equal(v.nodes.get('musicPanel').hidden, false);
   assert.equal(v.nodes.get('musicTitle').textContent, 'Track');
   assert.equal(v.nodes.get('musicArtist').textContent, 'Artist');
-  assert.equal(v.nodes.get('musicSource').textContent, 'ShazamKit识曲 · 进度估算');
-  assert.equal(v.nodes.get('musicPosition').textContent, '估算进度 1:12');
+  assert.equal(v.nodes.get('musicSource').textContent, '自动识曲');
+  assert.equal(v.nodes.get('musicPosition').textContent, '约 1:12');
   assert.equal(v.nodes.get('musicLines').children[0].textContent, 'Music lyric');
-  assert.match(v.nodes.get('musicNote').textContent, /LRCLIB.*不保证与播放同步/);
+  assert.match(v.nodes.get('musicNote').textContent, /LRCLIB.*估算显示.*可能不同步/);
   assert.ok(v.requests.every(item => item.path.startsWith('/')), 'No external metadata or lyric requests');
   // Video watchdog must not wipe a refreshed audio-only state.
   v.advance(4500); v.tick(1000);
@@ -178,7 +222,7 @@ test('music metadata and LRCLIB text are textContent-only and bounded', async ()
     lines: [injection, 'x'.repeat(300), ...Array(30).fill('line')] }) }))); await flush();
   assert.equal(v.nodes.get('musicTitle').textContent, injection);
   assert.equal(v.nodes.get('musicArtist').textContent, injection);
-  assert.equal(v.nodes.get('musicMessage').textContent, injection);
+  assert.equal(v.nodes.get('musicMessage').textContent, '');
   assert.equal(v.nodes.get('musicLines').children[0].textContent, injection);
   assert.equal(v.nodes.get('musicLines').children[1].textContent.length, 200);
   assert.equal(v.nodes.get('musicLines').children.length, 24);
@@ -206,11 +250,11 @@ test('manual music has separate provenance and match TTL, no-match clears old ly
   const v = viewer();
   v.requests[0].resolve(response(200, v.live({ music: music({ source: 'manual', matchedAt: 401 }) }))); await flush();
   assert.equal(v.nodes.get('musicPanel').hidden, false);
-  assert.equal(v.nodes.get('musicSource').textContent, '手动选曲 · 进度估算');
+  assert.equal(v.nodes.get('musicSource').textContent, '手动选曲');
   v.tick(1000); v.requests.at(-1).resolve(response(200, v.live({ music: music({ status: 'no-lyrics' }) }))); await flush();
   assert.equal(v.nodes.get('musicTitle').textContent, 'Track');
   assert.equal(v.nodes.get('musicLines').children.length, 0);
-  assert.match(v.nodes.get('musicNote').textContent, /LRCLIB 未匹配到歌词/);
+  assert.match(v.nodes.get('musicNote').textContent, /LRCLIB 暂无匹配歌词/);
   v.tick(1000); v.requests.at(-1).resolve(response(200, v.live({ music: music({ source: 'manual', matchedAt: 399 }) }))); await flush();
   assert.equal(v.nodes.get('musicPanel').hidden, true);
 });
@@ -225,7 +269,20 @@ test('unavailable music shows bounded guidance without retaining an old track', 
   assert.equal(v.nodes.get('musicTitle').textContent, '识曲服务不可用');
   assert.equal(v.nodes.get('musicArtist').textContent, '');
   assert.equal(v.nodes.get('musicLines').children.length, 0);
-  assert.match(v.nodes.get('musicMessage').textContent, /不会付费升级/);
+  assert.equal(v.nodes.get('musicMessage').textContent, '请在 iPhone 检查识曲设置，或手动选曲。');
+});
+
+test('music states expose only short curated actions rather than arbitrary service messages', async () => {
+  for (const [status, message] of [
+    ['waiting', '请在手机播放音乐，并开启识曲。'], ['recognizing', '请保持音乐播放。'],
+    ['matched', ''], ['loading', ''], ['lyrics', ''], ['no-lyrics', '']
+  ]) {
+    const v = viewer();
+    v.requests[0].resolve(response(200, v.live({ source: 'visible-screen', music: music({ status, message: 'INTERNAL diagnostics should not render' }) }))); await flush();
+    assert.equal(v.nodes.get('musicPanel').hidden, false, status);
+    assert.equal(v.nodes.get('musicMessage').textContent, message, status);
+    assert.ok([...v.nodes.values()].every(node => !node.textContent.includes('INTERNAL')), status);
+  }
 });
 
 test('music has an independent stale watchdog and clears on hidden, offline, disconnect and lost auth', async () => {
