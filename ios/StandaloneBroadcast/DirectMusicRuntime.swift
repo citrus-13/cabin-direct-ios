@@ -12,6 +12,7 @@ final class DirectMusicRuntime {
     private let client = DirectLyricsClient()
     private var active = false
     private var paused = false
+    private var recognitionUnavailable = false
     private var generation: UInt64 = 0
     private var acceptedAfter: Double = 0
     private var clock: DirectMusicClock?
@@ -107,6 +108,7 @@ final class DirectMusicRuntime {
             // Do not continue showing the old track while a new recognition window starts.
             clock = nil; status = "recognizing"; message = "正在识别系统允许提供的音频；不使用麦克风。"
         case "unavailable":
+            recognitionUnavailable = true
             clock = nil; client.cancel(); generation &+= 1
             status = "unavailable"; message = "识曲服务不可用，可能未启用 App ID 的 ShazamKit 服务。本次不再尝试，不会付费升级；可改用系统快捷指令或手动曲目。"
         case "no-audio", "no-match":
@@ -141,9 +143,10 @@ final class DirectMusicRuntime {
             self.generation &+= 1; self.client.cancel(); self.clock = nil; self.lastAudioAt = nil
             self.timeline = nil; self.cachedKey = nil; self.lookupKey = nil
             self.recognizer?.setPaused(value)
-            self.status = value ? "paused" : "waiting"
+            self.status = value ? "paused" : (self.recognitionUnavailable ? "unavailable" : "waiting")
             self.message = value ? "广播暂停，音乐与歌词已清空。" :
-                (self.settings.musicMode == .manual ? "手动曲目计时已失效，请结束并按实际进度重新开始。" : "等待恢复后的新识曲结果。")
+                (self.recognitionUnavailable ? "识曲服务在本次广播中不可用；暂停恢复不会重试或付费升级。请结束后选择手动曲目。" :
+                    (self.settings.musicMode == .manual ? "手动曲目计时已失效，请结束并按实际进度重新开始。" : "等待恢复后的新识曲结果。"))
             self.publish()
         }
     }

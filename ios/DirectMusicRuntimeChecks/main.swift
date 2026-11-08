@@ -143,6 +143,10 @@ do {
     let (runtime, states, recognizer, _) = fixture()
     recognizer.emitStatus("unavailable")
     states.wait("service unavailable", matching: { $0.status == "unavailable" && $0.title.isEmpty && $0.lines.isEmpty })
+    runtime.setPaused(true)
+    states.wait("unavailable paused", matching: { $0.status == "paused" })
+    runtime.setPaused(false)
+    states.wait("unavailable remains terminal after resume", matching: { $0.status == "unavailable" && $0.message.contains("不会重试") })
     runtime.stop()
     print("PASS unavailable remains an explicit public state")
 }
