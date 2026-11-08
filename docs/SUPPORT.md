@@ -10,6 +10,8 @@ Start with Connect → original sample while the iPhone app stays foregrounded. 
 
 For real sharing, stop the sample, open Share, save settings, review privacy and personally confirm the iOS system broadcast panel. Display only content that permits recording. Audio stays with your original player/audio route.
 
+Current source also offers [experimental music](MUSIC.md), absent from preview.3/preview.2: both app-audio recognition and separate LRCLIB access default OFF. It consumes no microphone buffers, saves no recording and relays no audio. Recognition only works with system-provided usable app audio and actual Shazam service admission, not every music/streaming app. Manual/Shortcut import is draft-only, leaves network access OFF and never starts capture.
+
 ## Common problems
 
 | Symptom | Safe check |
@@ -21,6 +23,8 @@ For real sharing, stop the sample, open Share, save settings, review privacy and
 | Network changed | Interface/address changes stop the source; inspect the new trusted network and restart/re-pair. |
 | Stop waits | Use iOS's recording indicator/Control Center to check/end capture. UI recovery alone is not stop confirmation. |
 | Installation expired | Personal Team provisioning is time-limited. See the [signing guide](INSTALL.md); do not buy anything just to troubleshoot. |
+| Music unavailable / no audio | Verify you are testing new source, not preview.3. Check the explicit setting and active user-started broadcast. Silence, protected content or App Service denial is not success; use manual/system-Shortcut input rather than a paid signup or fake entitlement. |
+| Lyrics missing / timing wrong | LRCLIB access requires separate consent; a track may have no timed lyrics. Matching/manual offsets are estimates and cannot read another player's pause/seek state. Do not infer live synchronization or fabricate missing lyrics. |
 
 ## Diagnostics and data choices
 

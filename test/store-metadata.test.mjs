@@ -5,8 +5,9 @@ import {spawnSync} from 'node:child_process';
 import {auditStoreMetadata} from '../lib/store-metadata.mjs';
 const base = JSON.parse(readFileSync(new URL('../docs/store/metadata.zh-Hans.json', import.meta.url), 'utf8'));
 const clone = () => structuredClone(base);
+const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
 test('store draft uses actual UI language, passes limits and preserves external blockers', () => {
-  const result = auditStoreMetadata(base, '0.4.0');
+  const result = auditStoreMetadata(base, version);
   assert.equal(result.draft_valid, true);
   assert.equal(result.submission_ready, false);
   assert.equal(result.app_store_submitted, false);
@@ -20,11 +21,11 @@ test('store draft uses actual UI language, passes limits and preserves external 
 });
 test('store checks Unicode characters separately from keyword UTF-8 bytes', () => {
   const valid = clone(); valid.listing.name = '名'.repeat(30);
-  assert.equal(auditStoreMetadata(valid, '0.4.0').field_sizes.name, 30);
+  assert.equal(auditStoreMetadata(valid, version).field_sizes.name, 30);
   const longName = clone(); longName.listing.name = '名'.repeat(31);
-  assert.throws(() => auditStoreMetadata(longName, '0.4.0'), /name/);
+  assert.throws(() => auditStoreMetadata(longName, version), /name/);
   const longKeywords = clone(); longKeywords.listing.keywords = '词'.repeat(34);
-  assert.throws(() => auditStoreMetadata(longKeywords, '0.4.0'), /Keywords/);
+  assert.throws(() => auditStoreMetadata(longKeywords, version), /Keywords/);
 });
 test('metadata rejects overlong/misleading profiles, unsafe URLs and implicit evidence', () => {
   const mutate = [
@@ -36,7 +37,7 @@ test('metadata rejects overlong/misleading profiles, unsafe URLs and implicit ev
     v => {delete v.evidence.device_installation;},
     v => {v.evidence.simulator_equals_device = true;}
   ];
-  for (const change of mutate) {const v = clone(); change(v); assert.throws(() => auditStoreMetadata(v, '0.4.0'));}
+  for (const change of mutate) {const v = clone(); change(v); assert.throws(() => auditStoreMetadata(v, version));}
 });
 test('a source declaration cannot certify readiness, even when all evidence is asserted', () => {
   const v = clone();
@@ -44,7 +45,7 @@ test('a source declaration cannot certify readiness, even when all evidence is a
   Object.assign(v.publisher, {public_name:'SYNTHETIC TEST',public_contact_email:'test@example.com',review_contact:'SYNTHETIC'});
   Object.assign(v.submission_urls,{support:'https://example.com/support',privacy_policy:'https://example.com/privacy'});
   v.age_rating = 'SYNTHETIC'; v.pricing = 'SYNTHETIC';
-  const result = auditStoreMetadata(v, '0.4.0');
+  const result = auditStoreMetadata(v, version);
   assert.equal(result.declared_inputs_complete,true);
   assert.equal(result.submission_ready,false);
   assert.equal(result.requires_independent_review,true);

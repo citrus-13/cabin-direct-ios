@@ -61,7 +61,8 @@ test('store-prep UI target/scheme is separate and leaves the shipping version an
   assert.match(schemes, /  CabinDirectStorePrep:\n[\s\S]*?CabinDirectStorePrepUITests: \[test\]/);
   assert.match(schemes, /- name: CabinDirectStorePrepUITests\n          parallelizable: false/);
   const shipping = project.split('  CabinDirect:\n')[1].split('  CabinDirectStorePrepUITests:\n')[0];
-  assert.equal((shipping.match(/MARKETING_VERSION: "0\.4\.0"/g) || []).length, 2);
+  const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  assert.deepEqual([...shipping.matchAll(/MARKETING_VERSION: "([^"]+)"/g)].map(match => match[1]), [version, version]);
 });
 
 test('public session-only appearance setting drives the app while diagnostics still read actual environments', () => {

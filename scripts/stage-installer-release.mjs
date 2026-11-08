@@ -69,7 +69,8 @@ verifyTag();
 const notes = [
   '# Cabin Direct ' + tag + ' — requires personal signing',
   '',
-  '包含安装工具标识映射与录屏扩展识别修复。下载后仍需个人签名；不能直接点击安装。',
+  '包含实验性 App 音频识曲、独立同意的 LRCLIB 歌词查询，以及手动/快捷指令曲目导入；音乐功能默认关闭。下载后仍需个人签名，不能直接点击安装。',
+  '免费签名账号的 Shazam App Service 权限、实际识曲及手机后台行为尚未核验；没有付费升级。歌词位置为估算，录音版本未核验。受保护视频不支持绕过，不保证可投屏。',
   '',
   'This is an arm64 iOS Release installer input with identity-free ad-hoc entitlement metadata.',
   'It is NOT Apple Ad Hoc distribution, an Apple-signed app, TestFlight or App Store distribution.',

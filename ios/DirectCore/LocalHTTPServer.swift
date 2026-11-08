@@ -29,6 +29,23 @@ public struct LocalJPEGFrame {
         self.data = data; self.sequence = sequence; self.updatedAt = updatedAt; self.width = width; self.height = height
     }
 }
+/// Public, credential-free music metadata. Kept separate from screen OCR.
+public struct LocalMusicState: Codable {
+    public var status: String
+    public var title: String
+    public var artist: String
+    public var lines: [String]
+    public var updatedAt: Double
+    public var matchedAt: Double
+    public var position: Double?
+    public var source: String
+    public var message: String
+    public init(status: String = "disabled", title: String = "", artist: String = "", lines: [String] = [], updatedAt: Double = 0, matchedAt: Double = 0, position: Double? = nil, source: String = "shazam", message: String = "") {
+        self.status = status; self.title = title; self.artist = artist; self.lines = lines
+        self.updatedAt = updatedAt; self.matchedAt = matchedAt; self.position = position
+        self.source = source; self.message = message
+    }
+}
 public struct LocalPublicState: Codable {
     public var captureState: String
     public var sequence: UInt64
@@ -40,10 +57,11 @@ public struct LocalPublicState: Codable {
     public var lyricUpdatedAt: Double
     public var source: String
     public var message: String
-    public init(captureState: String = "waiting", sequence: UInt64 = 0, frameUpdatedAt: Double = 0, width: Int = 0, height: Int = 0, lyricState: String = "disabled", lyricLines: [String] = [], lyricUpdatedAt: Double = 0, source: String = "visible-screen", message: String = "") {
+    public var music: LocalMusicState?
+    public init(captureState: String = "waiting", sequence: UInt64 = 0, frameUpdatedAt: Double = 0, width: Int = 0, height: Int = 0, lyricState: String = "disabled", lyricLines: [String] = [], lyricUpdatedAt: Double = 0, source: String = "visible-screen", message: String = "", music: LocalMusicState? = nil) {
         self.captureState = captureState; self.sequence = sequence; self.frameUpdatedAt = frameUpdatedAt
         self.width = width; self.height = height; self.lyricState = lyricState; self.lyricLines = lyricLines
-        self.lyricUpdatedAt = lyricUpdatedAt; self.source = source; self.message = message
+        self.lyricUpdatedAt = lyricUpdatedAt; self.source = source; self.message = message; self.music = music
     }
 }
 
@@ -157,6 +175,7 @@ public final class LocalHTTPServer {
             safe.message = String(safe.message.prefix(512))
             if !safe.frameUpdatedAt.isFinite { safe.frameUpdatedAt = 0 }
             if !safe.lyricUpdatedAt.isFinite { safe.lyricUpdatedAt = 0 }
+            safe.music = self.safeMusic(safe.music, captureState: safe.captureState)
             self.state = safe
             if ["paused", "ended", "stopped", "waiting", "error"].contains(safe.captureState) { self.frame = nil }
         }
@@ -166,7 +185,7 @@ public final class LocalHTTPServer {
         if let onStopped { stopCallbacks.append(onStopped) }
         running = false; listenerReady = false; failureCallback = nil
         timer?.cancel(); timer = nil
-        for client in Array(clients.values) { close(client) }; frame = nil
+        for client in Array(clients.values) { close(client) }; frame = nil; state.music = nil
         if let listener {
             self.listener = nil; stoppingListener = listener
             // Keep cleanup alive until Network confirms listener cancellation, including
@@ -288,8 +307,34 @@ public final class LocalHTTPServer {
     private func currentFrame() -> LocalJPEGFrame? {
         guard ["live", "broadcasting", "running", "capturing"].contains(state.captureState), let frame, now() - frame.updatedAt <= Self.staleAfter, now() >= frame.updatedAt - 1 else { return nil }; return frame
     }
+    private func safeMusic(_ value: LocalMusicState?, captureState: String) -> LocalMusicState? {
+        guard var music = value else { return nil }
+        let statuses = ["disabled", "waiting", "recognizing", "matched", "loading", "lyrics", "no-lyrics", "unavailable", "stale", "paused"]
+        let trusted = statuses.contains(music.status) && ["shazam", "manual"].contains(music.source)
+        if !trusted { music = .init(status: "unavailable") }
+        music.title = String(music.title.prefix(200)); music.artist = String(music.artist.prefix(200))
+        music.lines = Array(music.lines.prefix(24)).map { String($0.prefix(200)) }
+        music.message = String(music.message.prefix(512))
+        if !music.updatedAt.isFinite { music.updatedAt = 0 }
+        if !music.matchedAt.isFinite { music.matchedAt = 0 }
+        if let position = music.position, !position.isFinite || position < 0 || position > 86_400 { music.position = nil }
+        let current = now(), hasTrack = ["matched", "loading", "lyrics", "no-lyrics"].contains(music.status)
+        if ["paused", "ended", "stopped", "error"].contains(captureState) { music.status = captureState == "paused" ? "paused" : "unavailable" }
+        else if !["disabled", "paused", "unavailable"].contains(music.status),
+                !(music.updatedAt > 0 && music.updatedAt <= current && current - music.updatedAt <= Self.staleAfter &&
+                  (!hasTrack || (music.matchedAt > 0 && music.matchedAt <= current && current - music.matchedAt <= (music.source == "manual" ? 600 : 30)))) { music.status = "stale" }
+        if !["matched", "loading", "lyrics", "no-lyrics"].contains(music.status) {
+            music.title = ""; music.artist = ""; music.lines = []; music.position = nil; music.matchedAt = 0
+            if ["stale", "paused"].contains(music.status) { music.message = "" }
+        } else if music.status != "lyrics" { music.lines = [] }
+        // Invalid/future timestamps never cross the JSON boundary.
+        if music.updatedAt > current || music.updatedAt <= 0 { music.updatedAt = 0 }
+        if music.matchedAt > current || music.matchedAt <= 0 { music.matchedAt = 0 }
+        return music
+    }
     private func publicState() -> LocalPublicState {
         var result = state
+        result.music = safeMusic(result.music, captureState: result.captureState)
         if let frame = currentFrame() { result.sequence = frame.sequence; result.frameUpdatedAt = frame.updatedAt; result.width = frame.width; result.height = frame.height }
         else {
             if !["paused", "ended", "stopped", "waiting", "error"].contains(result.captureState) { result.captureState = "stale" }

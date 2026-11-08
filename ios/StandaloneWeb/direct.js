@@ -5,6 +5,7 @@
   let paired = false, failures = 0, streamActive = false, snapshotMode = false;
   let objectURL = null, pollTimer = null, lastLiveAt = 0, snapshotBusy = null, generation = 0, streamWatchdog = null;
   let enabled = true, epoch = 0, pollBusy = null, loggingOut = false;
+  let musicFreshness = null;
   const pending = new Set();
   try { enabled = sessionStorage.getItem('cabin-disconnected') !== '1'; } catch (_) {}
   const current = version => enabled && epoch === version;
@@ -15,6 +16,42 @@
     $('empty').hidden = false; $('emptyTitle').textContent = title; $('emptyMessage').textContent = message;
     $('lines').replaceChildren(); $('textEmpty').hidden = false; $('dimensions').textContent = '';
     $('streamMode').textContent = '无新画面';
+  }
+  function clearMusic() {
+    musicFreshness = null; $('musicPanel').hidden = true;
+    for (const id of ['musicTitle', 'musicArtist', 'musicSource', 'musicPosition', 'musicNote', 'musicMessage']) $(id).textContent = '';
+    $('musicLines').replaceChildren();
+  }
+  function musicIsFresh(music) {
+    const now = Date.now() / 1000;
+    const recent = value => typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= now;
+    if (!recent(music.updatedAt) || now - music.updatedAt > 4) return false;
+    return !['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status) ||
+      (recent(music.matchedAt) && now - music.matchedAt <= (music.source === 'manual' ? 600 : 30));
+  }
+  function displayMusic(state) {
+    const music = state.music;
+    clearMusic();
+    if (!music || !['shazam', 'manual'].includes(music.source) ||
+        !['waiting', 'recognizing', 'matched', 'loading', 'lyrics', 'no-lyrics', 'unavailable'].includes(music.status) ||
+        ['paused', 'ended', 'stopped', 'error'].includes(state.captureState) || !musicIsFresh(music)) return;
+    musicFreshness = { status: music.status, source: music.source, updatedAt: music.updatedAt, matchedAt: music.matchedAt };
+    const text = value => typeof value === 'string' ? value.slice(0, 200) : '';
+    const hasTrack = ['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status);
+    $('musicPanel').hidden = false;
+    $('musicSource').textContent = music.source === 'manual' ? '手动选曲 · 进度估算' : 'ShazamKit识曲 · 进度估算';
+    $('musicTitle').textContent = hasTrack ? text(music.title) : music.status === 'unavailable' ? '识曲服务不可用' : music.status === 'recognizing' ? '正在识别音乐' : '等待应用音频';
+    $('musicArtist').textContent = hasTrack ? text(music.artist) : '';
+    if (hasTrack && typeof music.position === 'number' && Number.isFinite(music.position) && music.position >= 0 && music.position <= 86400) {
+      const seconds = Math.floor(music.position);
+      $('musicPosition').textContent = `估算进度 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+    const lines = music.status === 'lyrics' && Array.isArray(music.lines) ? music.lines.slice(0, 24).filter(line => typeof line === 'string') : [];
+    $('musicLines').replaceChildren(...lines.map(line => { const node = document.createElement('p'); node.textContent = text(line); return node; }));
+    $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 未匹配到歌词；不影响屏幕共享。' :
+      music.status === 'loading' ? '正在查询 LRCLIB 歌词。' : music.status === 'lyrics' ? '歌词来源：LRCLIB · 录音版本未核验，按估算进度显示，不保证与播放同步。' :
+      '识曲结果与屏幕文字识别独立；不保证持续识别或歌词同步。';
+    $('musicMessage').textContent = typeof music.message === 'string' ? music.message.slice(0, 512) : '';
   }
   async function request(path, options = {}) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 2500);
@@ -27,7 +64,7 @@
     enabled = false; paired = false; epoch++; clearTimeout(pollTimer);
     for (const controller of pending) controller.abort();
     pollBusy = null; snapshotBusy = null; lastLiveAt = 0;
-    clearImage(); $('pairPanel').hidden = false; $('viewer').hidden = true;
+    clearImage(); clearMusic(); $('pairPanel').hidden = false; $('viewer').hidden = true;
     $('demoBanner').hidden = true; $('captureNote').textContent = '未连接';
   }
   function lostPairing() {
@@ -92,7 +129,7 @@
       if (!response.ok) throw new Error(response.status === 429 ? '连接数量已达上限，请关闭其他接收页面。' : '无法读取手机状态。');
       const state = await response.json();
       if (!current(session)) return;
-      if (document.hidden || !navigator.onLine) { clearImage('等待接收页面恢复'); schedule(3000); return; }
+      if (document.hidden || !navigator.onLine) { clearImage('等待接收页面恢复'); clearMusic(); schedule(3000); return; }
       showPaired(); failures = 0;
       const demo = state.source === 'demo';
       $('demoBanner').hidden = !demo;
@@ -100,6 +137,7 @@
       screen.alt = demo ? 'DEMO 原创合成演示画面，非真实手机屏幕' : 'iPhone 共享屏幕';
       const age = Date.now() / 1000 - Number(state.frameUpdatedAt);
       const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) && age >= -2 && age <= 4 && state.width > 0;
+      displayMusic(state);
       $('captureNote').textContent = demo ? '原创合成内容 · 同一真实配对与传输通道 · 非手机屏幕捕获' : state.message || (live ? '画面来自用户启动的 iPhone 屏幕广播' : '广播没有可用的新画面');
       if (!live) {
         const paused = state.captureState === 'paused';
@@ -120,7 +158,7 @@
     } catch (error) { if (current(session)) { failures++; disconnected(); $('captureNote').textContent = error.message; schedule(Math.min(1000 * 2 ** failures, 10000)); } }
     finally { if (pollBusy === ticket) pollBusy = null; }
   }
-  function disconnected() { if (!enabled) return; clearImage('连接已断开', '旧画面与文字已隐藏。确认手机与接收页面处于同一可信热点或 Wi-Fi，且来源仍运行。'); status('连接中断 · 正在重试'); }
+  function disconnected() { if (!enabled) return; clearImage('连接已断开', '旧画面与文字已隐藏。确认手机与接收页面处于同一可信热点或 Wi-Fi，且来源仍运行。'); clearMusic(); status('连接中断 · 正在重试'); }
   function schedule(ms) { clearTimeout(pollTimer); if (enabled) pollTimer = setTimeout(poll, ms); }
   $('disconnect').addEventListener('click', () => { void disconnect(); });
   $('pairForm').addEventListener('submit', async event => {
@@ -144,16 +182,20 @@
   }));
   $('fontSize').addEventListener('change', () => {
     $('lines').style.fontSize = `${Number($('fontSize').value)}px`;
+    $('musicLines').style.fontSize = `${Number($('fontSize').value)}px`;
     try { localStorage.setItem('cabin-font-size', $('fontSize').value); } catch (_) {}
   });
-  try { const value = localStorage.getItem('cabin-font-size'); if (['32', '42', '56'].includes(value)) { $('fontSize').value = value; $('lines').style.fontSize = `${value}px`; } } catch (_) {}
+  try { const value = localStorage.getItem('cabin-font-size'); if (['32', '42', '56'].includes(value)) { $('fontSize').value = value; $('lines').style.fontSize = `${value}px`; $('musicLines').style.fontSize = `${value}px`; } } catch (_) {}
   $('fullscreen').addEventListener('click', async () => {
     try { if (document.fullscreenElement) await document.exitFullscreen(); else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); else $('captureNote').textContent = '此浏览器不支持全屏，请使用车机浏览器的显示设置。'; }
     catch (_) { $('captureNote').textContent = '浏览器未允许全屏，可继续使用当前显示。'; }
   });
   window.addEventListener('offline', disconnected);
   window.addEventListener('online', () => schedule(0));
-  document.addEventListener('visibilitychange', () => { if (!enabled) return; if (document.hidden) clearImage('页面已隐藏'); else schedule(0); });
-  setInterval(() => { if (enabled && paired && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。'); }, 500);
+  document.addEventListener('visibilitychange', () => { if (!enabled) return; if (document.hidden) { clearImage('页面已隐藏'); clearMusic(); } else schedule(0); });
+  setInterval(() => {
+    if (enabled && paired && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。');
+    if (musicFreshness && !musicIsFresh(musicFreshness)) clearMusic();
+  }, 500);
   if (enabled) void poll(); else status('本页已断开 · 等待手动配对');
 })();

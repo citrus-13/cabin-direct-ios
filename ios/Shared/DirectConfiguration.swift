@@ -78,8 +78,57 @@ enum DirectLyricMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+enum DirectMusicMode: String, Codable, CaseIterable, Identifiable {
+    case off, appAudio, manual
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .off: return "关闭识曲与网络歌词"
+        case .appAudio: return "尝试自动识曲（ShazamKit，实验性）"
+        case .manual: return "使用手动 / 快捷指令提供的曲目"
+        }
+    }
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .off
+    }
+}
+
+/// An external URL may fill a draft, never grant network/capture consent or start a session.
+struct DirectTrackImport {
+    let title: String
+    let artist: String
+    let position: Double
+    static func parse(_ url: URL) -> Self? {
+        guard url.absoluteString.utf8.count <= 4096,
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parts.scheme == "cabin-direct", parts.host == "track", parts.port == nil,
+              parts.user == nil, parts.password == nil, parts.fragment == nil,
+              parts.path.isEmpty || parts.path == "/" else { return nil }
+        let items = parts.queryItems ?? []
+        guard items.count >= 2, items.count <= 3,
+              Set(items.map(\.name)).count == items.count,
+              items.allSatisfy({ ["title", "artist", "position"].contains($0.name) }) else { return nil }
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        let title = (values["title"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let artist = (values["artist"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard validText(title), validText(artist),
+              let position = Double(values["position"] ?? "0"), position.isFinite,
+              position >= 0, position <= 86_400 else { return nil }
+        return .init(title: title, artist: artist, position: position)
+    }
+    static func validText(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= 200 &&
+            !text.unicodeScalars.contains { CharacterSet.controlCharacters.contains($0) }
+    }
+}
+
 struct DirectSettings: Codable, Equatable {
     var lyricMode: DirectLyricMode = .mirror
+    var musicMode: DirectMusicMode = .off
+    var networkLyricsAllowed = false
+    var musicTitle = ""
+    var musicArtist = ""
+    var musicPosition: Double = 0
     // Coordinates refer to the displayed, oriented image; origin is top-left.
     var regionX: Double = 0.05
     var regionY: Double = 0.20
@@ -90,12 +139,18 @@ struct DirectSettings: Codable, Equatable {
     init() {}
 
     private enum CodingKeys: String, CodingKey {
-        case lyricMode, regionX, regionY, regionWidth, regionHeight, port
+        case lyricMode, musicMode, networkLyricsAllowed, musicTitle, musicArtist, musicPosition
+        case regionX, regionY, regionWidth, regionHeight, port
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         lyricMode = try values.decodeIfPresent(DirectLyricMode.self, forKey: .lyricMode) ?? .mirror
+        musicMode = try values.decodeIfPresent(DirectMusicMode.self, forKey: .musicMode) ?? .off
+        networkLyricsAllowed = try values.decodeIfPresent(Bool.self, forKey: .networkLyricsAllowed) ?? false
+        musicTitle = try values.decodeIfPresent(String.self, forKey: .musicTitle) ?? ""
+        musicArtist = try values.decodeIfPresent(String.self, forKey: .musicArtist) ?? ""
+        musicPosition = try values.decodeIfPresent(Double.self, forKey: .musicPosition) ?? 0
         regionX = try values.decodeIfPresent(Double.self, forKey: .regionX) ?? 0.05
         regionY = try values.decodeIfPresent(Double.self, forKey: .regionY) ?? 0.20
         regionWidth = try values.decodeIfPresent(Double.self, forKey: .regionWidth) ?? 0.90
@@ -104,6 +159,11 @@ struct DirectSettings: Codable, Equatable {
     }
 
     func validated() throws -> DirectSettings {
+        guard musicTitle.count <= 200, musicArtist.count <= 200,
+              musicPosition.isFinite, musicPosition >= 0, musicPosition <= 86_400,
+              musicMode != .manual || (DirectTrackImport.validText(musicTitle) && DirectTrackImport.validText(musicArtist)) else {
+            throw DemoError.message("手动曲目需要有效的歌名、歌手和估算起始秒数。")
+        }
         guard port >= 1024,
               [regionX, regionY, regionWidth, regionHeight].allSatisfy({ $0.isFinite }),
               regionX >= 0, regionY >= 0, regionWidth >= 0.05, regionHeight >= 0.05,

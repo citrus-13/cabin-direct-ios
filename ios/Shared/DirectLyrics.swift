@@ -47,6 +47,23 @@ struct DirectLyricTimeline {
     }
 }
 
+enum DirectLyricsRetry {
+    /// Retry-After is a lower bound, never permission for an automatic retry.
+    static func delay(header: String?, now: Date) -> Double {
+        guard let header else { return 60 }
+        let value = header.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let seconds = Double(value), seconds.isFinite, seconds >= 0 {
+            return max(60, seconds)
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: value) else { return 60 }
+        return max(60, date.timeIntervalSince(now))
+    }
+}
+
 /// Optional exact-track lookup. No account/API key, background discovery, microphone or disk cache.
 /// The caller must obtain opt-in before constructing a request containing song metadata.
 final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
@@ -57,6 +74,7 @@ final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
     private var expected: (title: String, artist: String, duration: Double?)?
     private var responseOK = false
     private var lastRequestAt: Double = -.infinity
+    private var nextAllowedAt: Double = -.infinity
     private lazy var session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
@@ -72,7 +90,7 @@ final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
     func lookup(title: String, artist: String, duration: Double?, completion: @escaping (Result<DirectLyricTimeline, Error>) -> Void) {
         cancel()
         guard !title.isEmpty, !artist.isEmpty, title.count <= 200, artist.count <= 200 else {
-            completion(.failure(DemoError.message("车辆未提供完整曲名和歌手，未查询网络歌词。"))); return
+            completion(.failure(DemoError.message("曲名和歌手不完整，未查询网络歌词。"))); return
         }
         var url = URLComponents(string: "https://lrclib.net/api/get")!
         url.queryItems = [.init(name: "track_name", value: title), .init(name: "artist_name", value: artist)]
@@ -80,13 +98,13 @@ final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
             url.queryItems?.append(.init(name: "duration", value: String(duration)))
         }
         var request = URLRequest(url: url.url!)
-        request.setValue("CabinDirect/0.3 (optional user-initiated lyrics lookup)", forHTTPHeaderField: "User-Agent")
+        request.setValue("CabinDirect/0.5 (+https://github.com/citrus-13/cabin-direct-ios; opt-in lyrics)", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         lock.lock()
         let now = ProcessInfo.processInfo.systemUptime
-        guard now - lastRequestAt >= 10 else {
+        guard now - lastRequestAt >= 10, now >= nextAllowedAt else {
             lock.unlock()
-            completion(.failure(DemoError.message("切歌过快，本次不查询网络歌词；没有自动重试。")))
+            completion(.failure(DemoError.message("歌词服务冷却中，本次不查询网络歌词；没有自动重试。")))
             return
         }
         lastRequestAt = now
@@ -115,6 +133,11 @@ final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         lock.lock()
+        guard current === dataTask else { lock.unlock(); completionHandler(.cancel); return }
+        if let http = response as? HTTPURLResponse, http.statusCode == 429 {
+            let delay = DirectLyricsRetry.delay(header: http.value(forHTTPHeaderField: "Retry-After"), now: Date())
+            nextAllowedAt = max(nextAllowedAt, ProcessInfo.processInfo.systemUptime + delay)
+        }
         let valid = current === dataTask && (response as? HTTPURLResponse)?.statusCode == 200 &&
             response.url?.scheme == "https" && response.url?.host == "lrclib.net" &&
             (response.expectedContentLength < 0 || response.expectedContentLength <= 1_048_576) &&
@@ -150,8 +173,10 @@ final class DirectLyricsClient: NSObject, URLSessionDataDelegate {
               let lrc = item["syncedLyrics"] as? String else {
             callback(.failure(DemoError.message("没有匹配的逐行歌词，或查询不可用；不会反复重试。"))); return
         }
-        if let duration = track.duration, let returned = item["duration"] as? Double, abs(duration - returned) > 3 {
-            callback(.failure(DemoError.message("歌词版本时长不匹配，已拒绝显示。"))); return
+        if let duration = track.duration {
+            guard let returned = item["duration"] as? Double, returned.isFinite, abs(duration - returned) <= 2 else {
+                callback(.failure(DemoError.message("歌词版本时长不匹配，已拒绝显示。"))); return
+            }
         }
         let timeline = DirectLyricTimeline(lrc: lrc)
         guard !timeline.lines.isEmpty else {

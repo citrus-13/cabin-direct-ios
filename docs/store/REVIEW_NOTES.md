@@ -2,6 +2,8 @@
 
 Keep the candidate Notes below within Apple's 4,000-byte field. Supply a real review contact in App Store Connect separately, not in public source.
 
+Current-source gate: these candidate Notes now include 0.5.0 music choices but are not ready for submission. Review the [experimental music scope](../MUSIC.md). Provider/lyric rights, exact-build and real-device evidence remain pending. Existing preview.3 does not contain the new mode.
+
 ## Candidate Notes
 
 Cabin Direct is an iPhone-local screen companion with a ReplayKit broadcast upload extension. It requires no app login, vehicle account, developer cloud, paid API or music-service account. Its UI is Simplified Chinese. Audio stays with the original player/audio route.
@@ -13,6 +15,7 @@ Requirements: a correctly signed iPhone installation, local-network permission, 
 3. For real sharing, open Share (共享). Save settings (保存共享设置), review/acknowledge privacy, then personally operate the genuine iOS broadcast picker and confirm Cabin Direct. Capture is never started programmatically. iOS Control Center can also explicitly start its configured extension.
 4. Return to read the current address/code, pair the browser, then display your own non-sensitive permitted content. Optional OCR reads only the selected visible region on device; it is not a lyrics API. Backgrounding the main app does not itself end a real broadcast.
 5. Stop through the app or iOS recording controls. Matching-session cleanup is acknowledged; heartbeat expiry alone is not stop confirmation. A changed network/address set ends the session; restart/re-pair manually.
+6. New source only: music defaults OFF. Opt-in recognition converts usable ReplayKit app audio to fingerprints for Apple/Shazam, without microphone input, recording or audio relay. A separate opt-in sends title/artist to LRCLIB for candidate timed lyrics, kept for the current track in memory. Recording version is unverified; timing is estimated, not live pause/seek state. Free-team Shazam App Service access is unproven. On failure use manual/Shortcut draft input; importing leaves lyric access OFF and starts no capture. No paid upgrade or silent-audio keepalive is used.
 
 Help (帮助) contains privacy/support and an explicit redacted diagnostic copy action. No diagnostic is uploaded automatically. Screens, notifications and receiver copies can be sensitive.
 

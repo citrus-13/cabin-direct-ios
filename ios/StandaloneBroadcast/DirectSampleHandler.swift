@@ -20,8 +20,9 @@ final class DirectSampleHandler: RPBroadcastSampleHandler {
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
-        guard sampleBufferType == .video else { return } // No microphone or app-audio capture.
         lock.lock(); let value = runtime; lock.unlock()
+        if sampleBufferType == .audioApp { value?.appendAudio(sampleBuffer); return }
+        guard sampleBufferType == .video else { return } // Never process .audioMic.
         let attachment = CMGetAttachment(sampleBuffer, key: RPVideoSampleOrientationKey as CFString, attachmentModeOut: nil) as? NSNumber
         let orientation = CGImagePropertyOrientation(rawValue: attachment?.uint32Value ?? 1) ?? .up
         value?.append(sampleBuffer, orientation: orientation)
@@ -42,6 +43,7 @@ private final class DirectBroadcastRuntime {
     private let onFailure: (Error) -> Void
     private let networkAddresses: [DirectInterfaceAddress]
     private var capture: CapturePipeline?
+    private var music: DirectMusicRuntime?
     private var timer: DispatchSourceTimer?
     private var state = LocalPublicState()
     private var running = false
@@ -79,6 +81,16 @@ private final class DirectBroadcastRuntime {
             self.state = LocalPublicState(lyricState: settings.lyricMode == .mirror ? "disabled" : "waiting",
                                            source: "visible-screen",
                                            message: "正在启动手机内置服务；等待首帧。")
+            if settings.musicMode != .off {
+                self.music = DirectMusicRuntime(settings: settings) { [weak self] snapshot in
+                    self?.queue.async { [weak self] in
+                        guard let self, self.running, !self.paused,
+                              self.observations.accepts(snapshot.updatedAt) else { return }
+                        self.state.music = snapshot; self.server.updateState(self.state)
+                    }
+                }
+                self.music?.start()
+            }
             self.capture = CapturePipeline(maxLongEdge: 960, maxShortEdge: 540, maxFPS: 8,
                 ocrEnabled: settings.lyricMode == .visibleText,
                 region: .init(x: settings.regionX, y: settings.regionY, width: settings.regionWidth, height: settings.regionHeight),
@@ -103,6 +115,11 @@ private final class DirectBroadcastRuntime {
         // Do not queue sample buffers here: CapturePipeline owns single-frame admission.
         let value: CapturePipeline? = queue.sync { running && !paused ? capture : nil }
         value?.append(sample, orientation: orientation)
+    }
+
+    func appendAudio(_ sample: CMSampleBuffer) {
+        let value = queue.sync { running && !paused ? music : nil }
+        value?.append(sample)
     }
 
     private func receive(_ frame: CapturedJPEG) {
@@ -134,6 +151,8 @@ private final class DirectBroadcastRuntime {
             self.paused = value
             self.observations.advance(to: Date().timeIntervalSince1970)
             self.capture?.setPaused(value)
+            self.music?.setPaused(value)
+            self.state.music = nil
             self.state.captureState = value ? "paused" : "waiting"
             self.state.lyricState = value ? "paused" : (self.session.settings.lyricMode == .mirror ? "disabled" : "waiting")
             self.state.lyricLines = []; self.state.lyricUpdatedAt = 0
@@ -156,6 +175,7 @@ private final class DirectBroadcastRuntime {
             onFailure(DemoError.message("共享已由你结束。"))
             return
         }
+        music?.tick()
         publish()
     }
 
@@ -187,6 +207,7 @@ private final class DirectBroadcastRuntime {
         running = false; listenerReady = false
         timer?.cancel(); timer = nil
         capture?.stop(); capture = nil
+        music?.stop(); music = nil; state.music = nil
         let sessionID = session.id, frames = state.sequence
         server.updateFrame(nil)
         server.stop {

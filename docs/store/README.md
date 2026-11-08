@@ -2,6 +2,8 @@
 
 Prepared for the screen-companion-v1 profile. These files create no Apple account, app record, price, contract, upload, TestFlight invitation or review submission.
 
+**Current-source addendum (2026-11-08):** 0.5.0 development introduces [optional experimental music](../MUSIC.md), not included in preview.3/preview.2. The Chinese JSON listing now discloses the new opt-ins and pending gates, but remains a developer draft, not ready for submission. Historical screenshot/release materials describe the earlier screen-only profile. Revalidate all fields, provider/lyric rights and privacy answers after exact-revision builds and device acceptance, before any submission. No historical green check validates the music path.
+
 | Material | Status |
 | --- | --- |
 | [Chinese listing](metadata.zh-Hans.json) | Copyable draft with checked field limits. Chinese is the implemented UI language; English/French UI is not invented. |

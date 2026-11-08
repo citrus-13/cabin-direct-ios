@@ -59,8 +59,14 @@ const shared = path.join(work, 'bin', 'direct-integration-checks');
 if (execute('shared-compile', 'swiftc', ['-module-cache-path', path.join(work, 'module-cache'),
   'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift',
   'ios/DirectIntegrationChecks/main.swift', '-o', shared])) execute('shared-tests', shared, []);
+const music = path.join(work, 'bin', 'direct-music-checks');
+if (execute('music-compile', 'swiftc', ['-swift-version', '5', '-module-cache-path', path.join(work, 'module-cache'),
+  'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift',
+  'ios/Shared/DirectMusicClock.swift', 'ios/DirectMusicChecks/main.swift', '-o', music])) execute('music-tests', music, []);
 execute('ios-source-parse-only', 'swiftc', ['-frontend', '-parse',
   'ios/StandaloneApp/CabinDirectApp.swift', 'ios/StandaloneApp/DirectDemoRuntime.swift', 'ios/StandaloneBroadcast/DirectSampleHandler.swift',
-  'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift']);
+  'ios/StandaloneBroadcast/DirectMusicRuntime.swift', 'ios/StandaloneBroadcast/DirectMusicRecognizer.swift',
+  'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift',
+  'ios/Shared/DirectMusicClock.swift']);
 console.log(`\nReport: ${reportPath}\nScope: macOS native execution and Swift syntax parsing only; full_iOS_build=false; no device acceptance.`);
 if (results.some(result => result.status !== 'passed')) process.exitCode = 1;

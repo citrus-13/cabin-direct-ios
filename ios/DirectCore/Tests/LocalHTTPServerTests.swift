@@ -126,6 +126,71 @@ final class LocalHTTPServerTests {
         publish(); server.updateFrame(nil)
         XCTAssertTrue(try request("/frame.jpg", headers: auth).contains("204"))
     }
+    func musicState() throws -> LocalMusicState? {
+        let response = try request("/api/state", headers: auth)
+        XCTAssertTrue(response.contains("200 OK"))
+        return try JSONDecoder().decode(LocalPublicState.self, from: Data(response.components(separatedBy: "\r\n\r\n").last!.utf8)).music
+    }
+    func testMusicAuthenticatedIndependentOfVideoAndOCR() throws {
+        let time = clock.now()
+        server.updateState(.init(captureState: "live", lyricState: "ready", lyricLines: ["screen only"], lyricUpdatedAt: time,
+                                 music: .init(status: "lyrics", title: "Song", artist: "Artist", lines: ["music only"], updatedAt: time, matchedAt: time, position: 32)))
+        XCTAssertTrue(try request("/api/state").contains("401"))
+        let publicResponse = try request("/api/state", headers: auth)
+        XCTAssertTrue(publicResponse.contains("\"captureState\":\"stale\""))
+        XCTAssertFalse(publicResponse.contains("screen only")); XCTAssertFalse(publicResponse.contains(token))
+        XCTAssertEqual(try musicState()?.lines, ["music only"])
+        XCTAssertEqual(try musicState()?.title, "Song")
+        XCTAssertTrue(try request("/frame.jpg", headers: auth).contains("204"))
+        // Old senders remain decodable and do not acquire a music payload.
+        server.updateState(.init())
+        XCTAssertEqual(try musicState()?.title, nil)
+        let legacy = Data("{\"captureState\":\"waiting\",\"sequence\":0,\"frameUpdatedAt\":0,\"width\":0,\"height\":0,\"lyricState\":\"disabled\",\"lyricLines\":[],\"lyricUpdatedAt\":0,\"source\":\"visible-screen\",\"message\":\"\"}".utf8)
+        XCTAssertEqual(try JSONDecoder().decode(LocalPublicState.self, from: legacy).music?.status, nil)
+    }
+    func testMusicBoundsSourcesStatusesAndNonfiniteValues() throws {
+        let time = clock.now()
+        server.updateState(.init(music: .init(status: "lyrics", title: String(repeating: "名", count: 300), artist: String(repeating: "a", count: 300), lines: Array(repeating: String(repeating: "x", count: 300), count: 40), updatedAt: time, matchedAt: time, position: .infinity, message: String(repeating: "m", count: 600))))
+        let bounded = try musicState()!
+        XCTAssertEqual(bounded.title.count, 200); XCTAssertEqual(bounded.artist.count, 200)
+        XCTAssertEqual(bounded.lines.count, 24); XCTAssertEqual(bounded.lines.first?.count, 200)
+        XCTAssertEqual(bounded.message.count, 512); XCTAssertEqual(bounded.position, nil)
+        for position in [Double.nan, -Double.infinity, -1, 86_401] {
+            server.updateState(.init(music: .init(status: "lyrics", title: "safe", lines: ["lyric"], updatedAt: time, matchedAt: time, position: position)))
+            XCTAssertEqual(try musicState()?.position, nil)
+        }
+        for invalid in [LocalMusicState(status: "unknown", title: "secret", lines: ["secret"], updatedAt: time, matchedAt: time),
+                        LocalMusicState(status: "lyrics", title: "secret", lines: ["secret"], updatedAt: time, matchedAt: time, source: "unknown")] {
+            server.updateState(.init(music: invalid))
+            let safe = try musicState()!
+            XCTAssertEqual(safe.status, "unavailable"); XCTAssertEqual(safe.source, "shazam")
+            XCTAssertEqual(safe.title, ""); XCTAssertEqual(safe.lines, [])
+        }
+        for dates in [(Double.nan, time), (Double.infinity, time), (time, Double.nan), (time, Double.infinity), (time + 1, time), (time, time + 1), (-1, time), (time, -1)] {
+            server.updateState(.init(music: .init(status: "lyrics", title: "old", lines: ["old"], updatedAt: dates.0, matchedAt: dates.1)))
+            let safe = try musicState()!
+            XCTAssertEqual(safe.status, "stale"); XCTAssertEqual(safe.title, ""); XCTAssertEqual(safe.artist, ""); XCTAssertEqual(safe.lines, [])
+            XCTAssertTrue(safe.updatedAt.isFinite); XCTAssertTrue(safe.matchedAt.isFinite)
+        }
+    }
+    func testMusicFreshnessAndPauseClearMetadata() throws {
+        let time = clock.now()
+        for (source, matchAge, expected) in [("shazam", 29.0, "lyrics"), ("shazam", 31.0, "stale"), ("manual", 599.0, "lyrics"), ("manual", 601.0, "stale")] {
+            server.updateState(.init(captureState: "waiting", music: .init(status: "lyrics", title: "track", artist: "artist", lines: ["lyrics"], updatedAt: time, matchedAt: time - matchAge, source: source)))
+            let music = try musicState()!
+            XCTAssertEqual(music.status, expected)
+            XCTAssertEqual(music.lines.isEmpty, expected == "stale")
+        }
+        for capture in ["paused", "ended", "stopped", "error"] {
+            server.updateState(.init(captureState: capture, music: .init(status: "lyrics", title: "track", artist: "artist", lines: ["lyrics"], updatedAt: time, matchedAt: time, position: 10)))
+            let music = try musicState()!
+            XCTAssertEqual(music.title, ""); XCTAssertEqual(music.artist, ""); XCTAssertEqual(music.lines, []); XCTAssertEqual(music.position, nil)
+        }
+        server.updateState(.init(music: .init(status: "lyrics", title: "track", artist: "artist", lines: ["lyrics"], updatedAt: time, matchedAt: time)))
+        clock.advance(5)
+        let stale = try musicState()!
+        XCTAssertEqual(stale.status, "stale"); XCTAssertEqual(stale.title, ""); XCTAssertEqual(stale.artist, ""); XCTAssertEqual(stale.lines, [])
+    }
     func testMultipartStreamingAndViewerCap() throws {
         publish()
         var sockets: [Socket] = []
@@ -289,14 +354,15 @@ final class LocalHTTPServerTests {
 
 @main private struct TestRunner {
     static func main() {
-        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout"]
+        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause"]
         var passed = 0
         for index in names.indices {
             let suite = LocalHTTPServerTests(), before = assertionFailures
             do {
                 try suite.setUpWithError()
                 let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds, suite.testUnpairOnlyClearsRequestingBrowserCookie, suite.testIPv6AllowlistIsExactNormalizedAndBounded, suite.testStopAcknowledgesCleanupAndRapidSamePortRestart, suite.testStartupDeadlineFailsOnceAndCleansListener]
-                try tests[index]()
+                let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata]
+                try (tests + musicTests)[index]()
             } catch { XCTFail("\(names[index]): \(error)") }
             suite.tearDown()
             if before == assertionFailures { passed += 1; print("PASS \(names[index])") }

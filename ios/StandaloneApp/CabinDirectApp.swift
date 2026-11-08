@@ -137,6 +137,19 @@ struct DirectSetupView: View {
                 .tabItem { Label("帮助", systemImage: "questionmark.circle").accessibilityIdentifier("tab.help") }
         }
         .tint(.teal)
+        .onOpenURL { url in
+            guard !settingsLocked, let track = DirectTrackImport.parse(url) else {
+                model.message = "曲目导入被拒绝：请先停止当前会话，并检查歌名与歌手。"; return
+            }
+            model.settings.musicMode = .manual
+            model.settings.musicTitle = track.title
+            model.settings.musicArtist = track.artist
+            model.settings.musicPosition = track.position
+            // A URL is untrusted input, not permission to query or share.
+            model.settings.networkLyricsAllowed = false
+            model.saved = false
+            model.message = "已填入曲目草稿；尚未联网或共享。请到共享页核对并选择是否允许歌词查询。"
+        }
         .preferredColorScheme(appearanceChoice.colorScheme)
         .onReceive(timer) { _ in
             model.refresh()
@@ -217,7 +230,7 @@ struct DirectSetupView: View {
                     set: { model.settings.lyricMode = $0 ? .visibleText : .mirror }))
                     .accessibilityIdentifier("setting.visible-text")
                     .accessibilityHint("可选；只处理选定区域内已经显示的文字，不查询网络歌词")
-                Text("默认仅共享可见画面。不读取音乐账号、后台播放列表或车辆数据，不向歌词网站查询。文字识别是可选功能，只识别屏幕上已显示的文字，可能错误或延迟；不是逐字同步歌词服务。")
+                Text("默认仅共享可见画面。可见文字识别在设备端处理，与下面可选的识曲、联网歌词相互独立。不读取音乐账号、后台播放列表或车辆数据。")
                     .font(.footnote).foregroundStyle(.secondary)
                 if model.settings.lyricMode == .visibleText {
                     DirectRegionPreview(x: model.settings.regionX, y: model.settings.regionY,
@@ -238,6 +251,27 @@ struct DirectSetupView: View {
                                  maximum: 1 - model.settings.regionX)
                     regionSlider("高度", identifier: "setting.region.height", value: $model.settings.regionHeight, minimum: 0.05,
                                  maximum: 1 - model.settings.regionY)
+                }
+                Picker("音乐功能（默认关闭）", selection: $model.settings.musicMode) {
+                    ForEach(DirectMusicMode.allCases) { mode in Text(mode.title).tag(mode) }
+                }.accessibilityIdentifier("setting.music-mode")
+                if model.settings.musicMode == .appAudio {
+                    Text("选择此项表示允许在本次广播中将系统提供的 App 音频制成声纹并交给 Apple / Shazam 匹配。不开麦克风，不保存或向浏览器转发音轨。识曲服务需 App ID 服务授权；当前免费签名账号能否使用仍待真机核验，失败不会购买会员。无音轨、DRM、静音、来电或锁屏可能中断；不保证所有播放器。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if model.settings.musicMode == .manual {
+                    TextField("歌名", text: $model.settings.musicTitle).accessibilityIdentifier("setting.music-title")
+                    TextField("歌手", text: $model.settings.musicArtist).accessibilityIdentifier("setting.music-artist")
+                    Stepper("广播开始时已播放：\(Int(model.settings.musicPosition)) 秒（手动估算）",
+                            value: $model.settings.musicPosition, in: 0...86_400, step: 1)
+                    Text("可由系统快捷指令识曲后导入，也可手动填写。此模式不知道真实暂停、跳转或换曲，最多显示 10 分钟；不是精确同步。切歌后请停止并更新曲目。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if model.settings.musicMode != .off {
+                    Toggle("允许向 LRCLIB 查询此曲目的歌词", isOn: $model.settings.networkLyricsAllowed)
+                        .accessibilityIdentifier("consent.network-lyrics")
+                    Text("开启后只向 lrclib.net 发送歌名和歌手；无账号或 API 付费，不保证曲库覆盖。歌词仅保存在本次会话内存中，并显示给已配对浏览器；服务免费不代表歌词版权已获许可，只用于你有权使用的内容。播放位置来自识曲估算或手动起点，可能延迟。")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
                 Stepper("本地端口：\(Int(model.settings.port))", value: $model.settings.port, in: 1024...65535)
                     .accessibilityIdentifier("setting.port")
@@ -353,7 +387,7 @@ struct DirectSetupView: View {
             }.font(.footnote)
             Section("隐私与数据") {
                 Text("广播可包含屏幕上的消息、账号信息和通知。建议启用专注模式；App 无法保证系统或第三方 App 会隐藏所有敏感内容。")
-                Text("画面和可选识别文字仅由手机临时保留最新结果，经过本地 HTTP 传给已配对浏览器；本功能不提供云中继、账号登录、云端 OCR 或网络歌词查询。未配对仍可能打开空的接收页面，不能读取画面。")
+                Text("画面和可选识别文字仅由手机临时保留最新结果，经过本地 HTTP 传给已配对浏览器；不提供云中继、账号登录或云端 OCR。可选识曲将声纹交给 Apple / Shazam；另行同意后歌词查询只将歌名、歌手交给 LRCLIB。未配对可打开空的接收页面，但不能读取画面或歌词。")
                 Text("本地 HTTP 不加密。局域网的其他参与者可能观察流量；配对不能消除此风险。配对码只在你明确点复制时写入本机剪贴板，设置 120 秒过期且不参与通用剪贴板；剪贴板最终由 iOS 管理。")
                 Text("此版本不录制或转发麦克风、播放器音轨。继续使用原播放器与原有蓝牙 / 其他音频路径，声音能否正常播放须单独测试。")
             }.font(.footnote)
@@ -469,15 +503,15 @@ private struct DirectPrivacyStatementView: View {
                 Text("屏幕可能包含通知、消息与账号信息。建议开启专注模式并避开敏感内容；不能保证系统或其他 App 隐藏所有通知。只共享你有权显示且允许录制的内容；不绕过 DRM。")
             }
             Section("本地处理与传输") {
-                Text("没有 App 账号、开发者云端接收服务、广告跟踪、云端 OCR 或外部歌词查询。可选文字识别只在设备上处理选定区域的可见内容，不读取后台歌曲或车辆资料。")
-                Text("最新画面与可选识别文字临时传给你配对的浏览器，不生成录屏或识别历史档案。原创样例演示只绘制合成卡片，不捕获手机屏幕。本功能不采集或转发麦克风与播放器音轨。")
+                Text("没有 App 账号、开发者云端接收服务、广告跟踪或云端 OCR。默认不查询网络。可选自动识曲会把系统允许提供的 App 音频制成声纹交给 Apple / Shazam；可选歌词查询将歌名、歌手交给 LRCLIB。两项须在共享设置中明确选择，不读取其他音乐 App 的后台控制状态或车辆资料。")
+                Text("最新画面、可见文字、已识别曲目和可选歌词只临时传给配对浏览器。不开麦克风，不保存或转发音轨，不生成录屏或识曲历史档案。原创样例不捕获手机屏幕，也不启动识曲或联网歌词。")
                 Label("HTTP 不加密，只使用你控制的可信局域网", systemImage: "lock.open")
                     .foregroundStyle(.orange)
                     .accessibilityIdentifier("privacy.http-warning")
                 Text("配对限制访问，不等于加密。网络参与者可能观察流量；接收设备、浏览器或其扩展也可能保存内容。已被接收方保存的内容无法由本 App 撤回。不要转发端口或公开配对码。")
             }
             Section("本地保存与停止") {
-                Text("画面与识别结果只保留有界的最新内容。暂停、过期或断开时隐藏旧结果，停止时清理运行时；这不是内存取证擦除或接收端存储清除保证。")
+                Text("画面、识曲结果和歌词只保留有界的最新内容；歌名、歌手草稿随设置留在本机，可清空。暂停、过期或断开时隐藏旧结果，停止时取消识曲与歌词请求；这不是内存取证擦除或接收端存储清除保证。自动识曲位置不是播放器暂停/跳转事件，歌词时间可能偏差。")
                 Text("真实广播的临时凭据保存在 App Group 中，供 App 与扩展协调。正常停止会清除匹配会话；最长八小时后凭据不可再用。若进程突然终止，失效文件可能保留至覆盖或移除 App 数据。设置与最后状态会留在本机；原创样例演示不把会话写入共享存储。")
                 Text("只有你明确点击时才复制地址、配对码或脱敏诊断。本机剪贴板分别设置两分钟或五分钟过期且不参与通用剪贴板，最终行为由 iOS 管理。浏览器配对 Cookie 随会话失效，不是账号或跟踪 Cookie。")
                 Text("App 停止操作需要等待扩展确认。心跳超时不等于停止成功；仅解除界面等待也不会注销凭据。真实广播不会因主 App 退到后台自动结束，请使用停止按钮或 iOS 系统录屏指示器。")

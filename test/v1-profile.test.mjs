@@ -9,14 +9,21 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = file => readFileSync(path.join(root, file), 'utf8');
 
-test('V1 targets exclude vehicle protocols, external lyrics and unrelated permissions', () => {
+test('V1 targets include optional music but exclude vehicle protocols and unrelated permissions', () => {
   const project = source('ios/project.yml').split('  CabinDirect:\n')[1].split('\nschemes:')[0];
-  assert.doesNotMatch(project, /TeslaBLE|DirectLyrics|Bluetooth|Keychain|keychain|UIBackgroundModes|WebRTC/);
+  assert.doesNotMatch(project, /TeslaBLE|Bluetooth|Keychain|keychain|UIBackgroundModes|WebRTC|NSMicrophoneUsageDescription/);
+  const extension = project.split('  DirectBroadcastExtension:\n')[1].split('  CabinDirectStorePrepUITests:')[0];
+  assert.match(extension, /Shared\/DirectLyrics\.swift/);
+  assert.match(extension, /Shared\/DirectMusicClock\.swift/);
+  assert.match(extension, /- StandaloneBroadcast/);
+  assert.doesNotMatch(project.split('  DirectBroadcastExtension:\n')[0], /DirectLyrics|DirectMusicClock/);
   assert.equal((project.match(/path: StandaloneWeb/g) || []).length, 2, 'Same receiver is bundled for app demo and extension');
   assert.equal((project.match(/com.apple.security.application-groups:/g) || []).length, 2);
   assert.match(project, /Privacy\/Broadcast\/PrivacyInfo\.xcprivacy/);
   for (const file of ['ios/StandaloneApp/CabinDirectApp.swift', 'ios/StandaloneApp/DirectDemoRuntime.swift', 'ios/StandaloneBroadcast/DirectSampleHandler.swift']) {
-    assert.doesNotMatch(source(file), /import TeslaBLE|teslaMedia|lrclib\.net|URLSession|enrollMonitor|startReading|AVAudioSession/);
+    // User-visible provider attribution is allowed; network execution stays in
+    // the opt-in extension client, never the setup app or demo runtime.
+    assert.doesNotMatch(source(file), /import TeslaBLE|teslaMedia|URLSession|enrollMonitor|startReading|AVAudioSession/);
   }
 });
 

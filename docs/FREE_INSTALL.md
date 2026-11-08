@@ -2,6 +2,8 @@
 
 Checked against primary documentation on **2026-11-05**. No payment, signing account, certificate export, cloud credential upload or VPN replacement is requested by this guide. Cabin Direct remains a developer preview, not an installable App Store/TestFlight release.
 
+**Music development addendum (2026-11-08):** current 0.5.0 source adds [default-OFF experimental music](MUSIC.md), absent from preview.3/preview.2. A free signed installation does not prove Shazam global-catalog access: the actual App ID needs its ShazamKit App Service enabled, and Personal Team service admission is not verified. Do not add the nonexistent `com.apple.developer.shazamkit` entitlement, buy membership or silently change accounts to resolve a denial. Use manual/system-Shortcut draft input when unavailable; imports leave network lyrics OFF and never start capture. Compilation, signing, service admission and per-app real-device success remain separate gates.
+
 ## Continue development without local Xcode
 
 Keep the native Swift/ReplayKit project. Editing code and running the repository's free standard GitHub macOS workflow do not require Xcode on the user's own Mac. Public repositories' standard hosted runners are currently free ([GitHub policy](https://docs.github.com/en/actions/how-tos/write-workflows/choose-where-workflows-run/choose-the-runner-for-a-job)); do not switch to larger/paid runners, a private-repository paid allocation or external paid build service.
