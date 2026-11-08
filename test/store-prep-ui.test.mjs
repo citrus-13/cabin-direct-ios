@@ -110,6 +110,7 @@ test('light and dark Settings inspect exact default-off music value without gran
   assert.ok(dark.lastIndexOf('tapTab("tab.settings"') < dark.indexOf('assertMusicDefaults(in: app)'));
   assert.ok(dark.indexOf('assertMusicDefaults(in: app)') < dark.indexOf('dark-share-controls-verified'));
   assert.match(app, /\.accessibilityIdentifier\("setting\.music-mode"\)/);
+  assert.match(app, /\.accessibilityValue\(model\.settings\.musicMode == \.off \? "关闭" :\s*model\.settings\.musicMode == \.appAudio \? "自动识曲" : "手动选曲"\)/);
   assert.match(app, /\.accessibilityIdentifier\("consent\.network-lyrics"\)/);
 });
 

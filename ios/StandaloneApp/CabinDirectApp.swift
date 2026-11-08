@@ -276,7 +276,11 @@ struct DirectSetupView: View {
                     Text("关闭").tag(DirectMusicMode.off)
                     Text("自动识曲").tag(DirectMusicMode.appAudio)
                     Text("手动选曲").tag(DirectMusicMode.manual)
-                }.accessibilityIdentifier("setting.music-mode")
+                }
+                .accessibilityIdentifier("setting.music-mode")
+                .accessibilityLabel("识曲方式")
+                .accessibilityValue(model.settings.musicMode == .off ? "关闭" :
+                    model.settings.musicMode == .appAudio ? "自动识曲" : "手动选曲")
                 if model.settings.musicMode == .appAudio {
                     Text("投屏时将音频声纹交给 Apple / Shazam 识曲，不使用麦克风。部分播放器可能无法提供音频。")
                         .font(.footnote).foregroundStyle(.secondary)
