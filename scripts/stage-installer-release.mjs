@@ -83,13 +83,23 @@ const notes = [
   'Exactly three assets: the IPA, INSTALLER-INPUT.json and SHA256SUMS.txt. Verify the metadata and hashes together.',
   'Earlier releases are preserved. This candidate requires independent maintainer download verification before publication.'
 ].join('\n');
-run('gh', ['release', 'create', tag, ...names.map(name => path.join(out, name)), '--repo', repository,
-  '--verify-tag', '--draft', '--prerelease', '--latest=false', '--target', commit,
-  '--title', 'Cabin Direct ' + tag + ' — personal signing required', '--notes', notes]);
-const matches = api('/releases?per_page=100', '--paginate', '--slurp').flat().filter(item => item.tag_name === tag);
-requireValue(matches.length === 1 && Number.isSafeInteger(matches[0].id));
-const draft = api('/releases/' + matches[0].id);
-requireValue(draft.tag_name === tag && draft.target_commitish === commit && draft.draft === true &&
+// Retain the create response ID: a just-created draft may not yet appear in list results.
+const created = api('/releases', '--method', 'POST', '-f', 'tag_name=' + tag,
+  '-f', 'target_commitish=' + commit, '-F', 'draft=true', '-F', 'prerelease=true',
+  '-f', 'make_latest=false', '-f', 'name=Cabin Direct ' + tag + ' — personal signing required', '-f', 'body=' + notes);
+requireValue(Number.isSafeInteger(created.id) && created.id > 0 && created.tag_name === tag &&
+  created.target_commitish === commit && created.draft === true && created.prerelease === true &&
+  Array.isArray(created.assets) && created.assets.length === 0);
+for (const name of names) {
+  // An absolute upload URL avoids gh's REST-prefix rewriting of custom hosts.
+  const uploaded = JSON.parse(run('gh', ['api', '--hostname', 'github.com',
+    'https://uploads.github.com/' + apiRoot + '/releases/' + created.id + '/assets?name=' + encodeURIComponent(name), '--method', 'POST',
+    '-H', 'Content-Type: application/octet-stream', '--input', path.join(out, name)]));
+  requireValue(Number.isSafeInteger(uploaded.id) && uploaded.id > 0 && uploaded.name === name &&
+    uploaded.state === 'uploaded' && uploaded.size === files.get(name).size);
+}
+const draft = api('/releases/' + created.id);
+requireValue(draft.id === created.id && draft.tag_name === tag && draft.target_commitish === commit && draft.draft === true &&
   draft.prerelease === true && draft.assets.length === names.length);
 for (const name of names) {
   const assets = draft.assets.filter(item => item.name === name), expected = files.get(name);

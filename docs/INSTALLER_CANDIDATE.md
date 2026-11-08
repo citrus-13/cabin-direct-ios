@@ -1,8 +1,14 @@
 # Installer-input candidate with the compatibility fixes
 
-Target release: [v0.4.0-preview.3](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.3).
-Availability is established only when that page is public and lists the three checked assets.
-The separate manual workflow first creates an unpublished draft; the maintainer downloads and verifies it before publishing.
+Published candidate: [v0.4.0-preview.3](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.3), independently downloaded and verified on 2026-11-08.
+[Download the IPA](https://github.com/citrus-13/cabin-direct-ios/releases/download/v0.4.0-preview.3/CabinDirect-46b507e417a8-adhoc-entitlement-input.ipa) (545,218 bytes).
+Its exact source is `46b507e417a86fb11fe56d29f267ed0a170657a3`.
+The separate manual workflow stages drafts only; publication follows an independent download review.
+
+The [actual cloud run](https://github.com/citrus-13/cabin-direct-ios/actions/runs/42428225932) compiled the iOS Release products, passed 212 tests with no failures/skips, and uploaded all three assets.
+Its **overall conclusion is failure**: the post-upload draft-list lookup failed. The existing draft was recovered by its exact ID, independently downloaded and checked, then published without replacing its tag or files.
+Both packaged executables, metadata signatures/entitlements, runtime resolver markers, source resources, privacy manifests, versions and ReplayKit entry point passed the download review.
+Later publishing-script maintenance is not a different binary; the candidate remains tied to the exact source above.
 
 This candidate includes the runtime identifier/shared-group resolver added after preview.2.
 The host finds its own packaged ReplayKit extension after supported identifier remapping;
@@ -21,6 +27,8 @@ shasum -a 256 -c SHA256SUMS.txt
 Both listed files must report OK. Hashes verify consistency, not Apple's authorization to install.
 The metadata records original and packaged executable hashes and the candidate IPA hash.
 The executable metadata signatures are checked separately in CI and again after downloading.
+
+Candidate IPA SHA-256: `62b983d099de204b9c10d008d097c36b9bb3c09d6e09e25d48cd652afb0ddb57`.
 
 ## Not a directly installable Apple-signed app
 

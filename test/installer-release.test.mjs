@@ -58,7 +58,8 @@ test('candidate release rejects skipped, failed, cancelled or ambiguous test evi
 test('draft stager has create-only refs, exact assets, remote verification and no publication', () => {
   const source = fs.readFileSync(new URL('../scripts/stage-installer-release.mjs', import.meta.url), 'utf8');
   for (const fragment of ['validateInstallerRelease(info', 'assertActualBuild', "'/git/refs', '--method', 'POST'",
-    "'--verify-tag', '--draft', '--prerelease', '--latest=false'", 'draft.assets.length === names.length',
+    "'-F', 'draft=true', '-F', 'prerelease=true'", "'-f', 'make_latest=false'",
+    "'--hostname', 'github.com'", "'https://uploads.github.com/' + apiRoot", "api('/releases/' + created.id)", 'draft.assets.length === names.length',
     'assets[0].digest ===', 'hash(bytes) === expected.sha256']) assert.ok(source.includes(fragment), fragment);
   assert.doesNotMatch(source, /\['release', 'edit'|--draft=false|--clobber|--force|rmSync|unlinkSync|shell:\s*true/);
 });
