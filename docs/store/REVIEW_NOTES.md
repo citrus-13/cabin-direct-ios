@@ -2,7 +2,7 @@
 
 Keep the candidate Notes below within Apple's 4,000-byte field. Supply a real review contact in App Store Connect separately, not in public source.
 
-Current-source gate: these candidate Notes now include 0.5.0 music choices but are not ready for submission. Review the [experimental music scope](../MUSIC.md). Provider/lyric rights, exact-build and real-device evidence remain pending. Existing preview.3 does not contain the new mode.
+Current-source gate: these candidate Notes include 0.5.0 music choices but are not ready for submission. Review the [experimental music scope and exact-build evidence](../MUSIC.md). The tagged 0.5.0 preview passed compilation/tests; provider/lyric rights, service access and real-device evidence remain pending. Earlier 0.4.0 preview.3 does not contain the new mode.
 
 ## Candidate Notes
 

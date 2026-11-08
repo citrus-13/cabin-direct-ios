@@ -10,6 +10,9 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const source = file => readFileSync(path.join(root, file), 'utf8');
 
 test('V1 targets include optional music but exclude vehicle protocols and unrelated permissions', () => {
+  const legacy = source('ios/project.yml').split('  CabinDirect:\n')[0];
+  assert.equal((legacy.match(/excludes: \[DirectConfiguration.swift, DirectLyrics.swift, DirectMusicClock.swift\]/g) || []).length, 2,
+    'Legacy harness targets must not compile Cabin-only helpers without their settings type');
   const project = source('ios/project.yml').split('  CabinDirect:\n')[1].split('\nschemes:')[0];
   assert.doesNotMatch(project, /TeslaBLE|Bluetooth|Keychain|keychain|UIBackgroundModes|WebRTC|NSMicrophoneUsageDescription/);
   const extension = project.split('  DirectBroadcastExtension:\n')[1].split('  CabinDirectStorePrepUITests:')[0];

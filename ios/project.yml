@@ -30,7 +30,7 @@ targets:
     sources:
       - App
       - path: Shared
-        excludes: [DirectConfiguration.swift, DirectLyrics.swift]
+        excludes: [DirectConfiguration.swift, DirectLyrics.swift, DirectMusicClock.swift]
     info:
       path: Config/App-Info.plist
       properties:
@@ -63,7 +63,7 @@ targets:
     sources:
       - Broadcast
       - path: Shared
-        excludes: [DirectConfiguration.swift, DirectLyrics.swift]
+        excludes: [DirectConfiguration.swift, DirectLyrics.swift, DirectMusicClock.swift]
     info:
       path: Config/Broadcast-Info.plist
       properties:

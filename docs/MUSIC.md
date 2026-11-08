@@ -1,6 +1,6 @@
-# Experimental music — current source, not a music release
+# Experimental music — developer preview, device acceptance pending
 
-Scope: 0.5.0 development on 2026-11-08. This feature is **not present in preview.3 or preview.2**, and historical compilation, simulator screenshots and downloaded-IPA checks do not establish its success. Source tests, native compilation, signing/service admission and on-device acceptance are distinct gates. No music-compatible release, real iPhone result or App Store approval is claimed here.
+Scope: [v0.5.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.5.0-preview.1), released 2026-11-08 from `4ec061dd1ca1399763a4ad36076af98932b1a664`. [The complete cloud run](https://github.com/citrus-13/cabin-direct-ios/actions/runs/42476798870) passed actual iOS Release compilation and 239 tests, zero failed/skipped. The downloaded 640,918-byte IPA, both executable hashes and identity-free metadata signatures were checked independently; the extension links ShazamKit. SHA-256: `9b6ccdf50c14128cf8220774bad74be65f55150db84df4d17f51b1f922cb3065`. The package still requires personal signing. Source/compile evidence is not Shazam service admission, actual recognition, phone installation, Tesla acceptance or App Store approval. Earlier 0.4.0 preview.3/preview.2 do not contain this music mode. Later documentation and legacy-target isolation maintenance does not change this tagged binary.
 
 ## Explicit choices and data flow
 
@@ -49,8 +49,8 @@ Free API access, open-source code and this repository's Apache-2.0 license **do 
 
 ## Acceptance checklist — evidence pending
 
-- [ ] Source checks and focused unit tests pass for defaults OFF, imports leaving network OFF, parsing/sanitization, bounded payloads, rate limiting and stop/pause/stale result rejection. Record actual commands/results separately; this checklist does not assert a pass.
-- [ ] Exact-revision iOS app and extension compile with ShazamKit and current privacy resources. Historical preview builds do not count.
+- [x] Exact tagged source passed 239 cloud tests, including 18 executable offline music cases and 8 actual coordinator scenarios with fake recognizer/provider (no real audio or service calls). The local native runner separately passed 18 TCP, 8 capture, 36 retained research, 15 shared and 18 music checks. These are not device or external-service tests.
+- [x] Exact tagged source passed iOS Release app/extension compilation and package validation in run 42476798870. The independently downloaded extension links ShazamKit; no Apple signing identity/profile is included.
 - [ ] Actual free-account signing, App Groups and Shazam App Service admission verified without new purchases, fake entitlements or credential disclosure; if unavailable, verify honest failure and manual fallback.
 - [ ] On an installed iPhone, OFF mode makes no Shazam/LRCLIB requests; recognition-only mode sends no lyric request; separate lyric consent is required; no microphone buffers or audio stream reach the receiver.
 - [ ] Test actual non-silent permitted audio for each claimed app/route, including headphones and a live stream where relevant. All-zero/no-audio, no-match, service failure and denied/absent permissions remain non-success states.
