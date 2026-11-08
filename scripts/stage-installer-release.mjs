@@ -1,0 +1,108 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { assertActualBuild } from '../lib/preview-package.mjs';
+import { validateInstallerRelease } from '../lib/installer-release.mjs';
+
+const repoPath = fs.realpathSync(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
+const repository = 'citrus-13/cabin-direct-ios', apiRoot = 'repos/' + repository;
+const commit = process.env.GITHUB_SHA, tag = process.env.CABIN_INSTALLER_TAG;
+function requireValue(value) { if (!value) throw new Error('Installer release staging failed; inspect existing draft/tag before retrying'); }
+function run(command, args, binary = false, allow404 = false) {
+  const result = spawnSync(command, args, { cwd: repoPath, encoding: binary ? null : 'utf8',
+    timeout: 120_000, maxBuffer: 64 * 1024 * 1024 });
+  if (allow404 && result.status !== 0 && /HTTP 404/.test(String(result.stderr || ''))) return null;
+  requireValue(!result.error && result.status === 0);
+  return result.stdout;
+}
+const api = (suffix, ...args) => JSON.parse(run('gh', ['api', apiRoot + suffix, ...args]));
+const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
+const whole = (pattern, value) => typeof value === 'string' && pattern.exec(value)?.[0] === value;
+requireValue(process.env.GITHUB_REPOSITORY === repository && process.env.GITHUB_EVENT_NAME === 'workflow_dispatch' &&
+  process.env.GITHUB_REF === 'refs/heads/codex/public-build' && whole(/^[a-f0-9]{40}$/, commit) &&
+  whole(/^[0-9]+$/, process.env.GITHUB_RUN_ID));
+requireValue(run('git', ['rev-parse', 'HEAD']).trim() === commit && !run('git', ['status', '--porcelain']).trim());
+const version = JSON.parse(fs.readFileSync(path.join(repoPath, 'package.json'), 'utf8')).version;
+const runner = fs.realpathSync(process.env.RUNNER_TEMP);
+const out = path.join(runner, 'cabin-installer-input'), work = fs.realpathSync(process.env.CABIN_IOS_WORK_DIR);
+requireValue(work === path.join(runner, 'cabin-installer-build') && fs.realpathSync(out) === out &&
+  fs.lstatSync(out).isDirectory() && !fs.lstatSync(out).isSymbolicLink());
+const buildFile = path.join(work, 'ios-build-report.json');
+requireValue(fs.statSync(buildFile).size < 1024 * 1024);
+assertActualBuild(JSON.parse(fs.readFileSync(buildFile, 'utf8')), { commit, configuration: 'Release' });
+const tapFile = path.join(runner, 'cabin-installer-tests.tap');
+requireValue(fs.statSync(tapFile).size < 2 * 1024 * 1024);
+const tap = fs.readFileSync(tapFile, 'utf8'), tests = {};
+for (const label of ['tests', 'pass', 'fail', 'skipped', 'cancelled']) {
+  const matches = [...tap.matchAll(new RegExp('^# ' + label + ' ([0-9]+)$', 'gm'))];
+  requireValue(matches.length === 1); tests[label] = Number(matches[0][1]);
+}
+const infoFile = path.join(out, 'INSTALLER-INPUT.json');
+requireValue(fs.statSync(infoFile).size < 16 * 1024);
+const info = JSON.parse(fs.readFileSync(infoFile, 'utf8'));
+const names = validateInstallerRelease(info, { commit, tag, version, tests });
+const files = new Map();
+for (const name of names) {
+  const file = path.join(out, name), stat = fs.lstatSync(file);
+  requireValue(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 64 * 1024 * 1024);
+  const bytes = fs.readFileSync(file);
+  files.set(name, { size: bytes.length, sha256: hash(bytes) });
+}
+requireValue(files.get(info.ipa).sha256 === info.ipa_sha256);
+const sums = fs.readFileSync(path.join(out, 'SHA256SUMS.txt'), 'utf8').trim().split('\n');
+requireValue(sums.length === 2 && names.slice(0, 2).every((name, i) => sums[i] === files.get(name).sha256 + '  ' + name));
+const currentRepo = api('');
+requireValue(currentRepo.private === false && currentRepo.default_branch === 'codex/public-build');
+const releases = api('/releases?per_page=100', '--paginate', '--slurp');
+requireValue(Array.isArray(releases) && releases.every(Array.isArray) &&
+  !releases.flat().some(item => item.tag_name === tag) &&
+  run('gh', ['api', apiRoot + '/git/ref/tags/' + tag], false, true) === null);
+// Create-only ref. Concurrent conflicts fail rather than moving existing tags.
+api('/git/refs', '--method', 'POST', '-f', 'ref=refs/tags/' + tag, '-f', 'sha=' + commit);
+function verifyTag() {
+  const ref = api('/git/ref/tags/' + tag);
+  requireValue(ref.ref === 'refs/tags/' + tag && ref.object?.type === 'commit' && ref.object.sha === commit);
+}
+verifyTag();
+const notes = [
+  '# Cabin Direct ' + tag + ' — requires personal signing',
+  '',
+  '包含安装工具标识映射与录屏扩展识别修复。下载后仍需个人签名；不能直接点击安装。',
+  '',
+  'This is an arm64 iOS Release installer input with identity-free ad-hoc entitlement metadata.',
+  'It is NOT Apple Ad Hoc distribution, an Apple-signed app, TestFlight or App Store distribution.',
+  'No Apple account, certificate, provisioning profile or paid service is included.',
+  'It has NOT been validated in a third-party installer or on a real iPhone. Capture, renewal and vehicle acceptance remain pending.',
+  'A free signing workflow still requires its own device/account/pairing prerequisites and periodic renewal; no permanent free-signing promise.',
+  '',
+  'Source: ' + commit,
+  'Build: https://github.com/' + repository + '/actions/runs/' + process.env.GITHUB_RUN_ID,
+  'Source tests: ' + tests.pass + ' passed, 0 failed, 0 skipped.',
+  'Exactly three assets: the IPA, INSTALLER-INPUT.json and SHA256SUMS.txt. Verify the metadata and hashes together.',
+  'Earlier releases are preserved. This candidate requires independent maintainer download verification before publication.'
+].join('\n');
+run('gh', ['release', 'create', tag, ...names.map(name => path.join(out, name)), '--repo', repository,
+  '--verify-tag', '--draft', '--prerelease', '--latest=false', '--target', commit,
+  '--title', 'Cabin Direct ' + tag + ' — personal signing required', '--notes', notes]);
+const matches = api('/releases?per_page=100', '--paginate', '--slurp').flat().filter(item => item.tag_name === tag);
+requireValue(matches.length === 1 && Number.isSafeInteger(matches[0].id));
+const draft = api('/releases/' + matches[0].id);
+requireValue(draft.tag_name === tag && draft.target_commitish === commit && draft.draft === true &&
+  draft.prerelease === true && draft.assets.length === names.length);
+for (const name of names) {
+  const assets = draft.assets.filter(item => item.name === name), expected = files.get(name);
+  requireValue(assets.length === 1 && assets[0].state === 'uploaded' && assets[0].size === expected.size &&
+    Number.isSafeInteger(assets[0].id));
+  if (assets[0].digest) requireValue(assets[0].digest === 'sha256:' + expected.sha256);
+  else {
+    const bytes = run('gh', ['api', apiRoot + '/releases/assets/' + assets[0].id, '-H', 'Accept: application/octet-stream'], true);
+    requireValue(bytes.length === expected.size && hash(bytes) === expected.sha256);
+  }
+}
+verifyTag();
+console.log(JSON.stringify({ tag, release_id: draft.id, source_commit: commit, draft: true, prerelease: true,
+  directly_installable: false, maintainer_download_review_required: true, source_tests: tests,
+  assets: names.map(name => ({ name, ...files.get(name) })) }, null, 2));
+// Deliberately no release-edit/publish step. Parent verifies downloaded bytes first.
