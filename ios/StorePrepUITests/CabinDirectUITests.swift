@@ -19,6 +19,7 @@ final class CabinDirectUITests: XCTestCase {
         tapTab("tab.share", label: "共享", in: app)
         XCTAssertTrue(app.switches["setting.visible-text"].waitForExistence(timeout: 5))
         attach("share-light", from: app)
+        assertMusicDefaults(in: app)
 
         tapTab("tab.help", label: "帮助", in: app)
         tap("help.privacy", in: app)
@@ -29,7 +30,9 @@ final class CabinDirectUITests: XCTestCase {
         back(in: app)
         tap("help.support", in: app)
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
-        XCTAssertTrue(element("about.version", in: app).label.contains("0.4.0"))
+        let version = element("about.version", in: app)
+        XCTAssertTrue(version.waitForExistence(timeout: 5))
+        XCTAssertEqual(version.label, "版本 0.5.0（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -105,7 +108,22 @@ final class CabinDirectUITests: XCTestCase {
         reveal(app.switches["setting.visible-text"], identifier: "setting.visible-text", in: app)
         XCTAssertTrue(app.switches["setting.visible-text"].isHittable,
                       details(app.switches["setting.visible-text"], identifier: "setting.visible-text"))
+        assertMusicDefaults(in: app)
         print("[STORE-PREP TEST] dark-share-controls-verified")
+    }
+
+    @MainActor
+    private func assertMusicDefaults(in app: XCUIApplication) {
+        // The workflow owns a fresh Simulator and these tests never save settings.
+        // Inspect real controls only; do not select a mode or grant any consent.
+        let mode = element("setting.music-mode", in: app)
+        reveal(mode, identifier: "setting.music-mode", in: app)
+        XCTAssertTrue(mode.isHittable, details(mode, identifier: "setting.music-mode"))
+        let selection = mode.label + " " + String(describing: mode.value ?? "")
+        XCTAssertTrue(selection.contains("关闭识曲与网络歌词"), "Music must remain off by default")
+        let lyricsConsent = app.switches["consent.network-lyrics"]
+        XCTAssertTrue(!lyricsConsent.exists || !isVisible(lyricsConsent, in: app),
+                      "Network lyrics consent must not be displayed while music is off")
     }
 
     @MainActor

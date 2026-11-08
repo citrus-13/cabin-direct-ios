@@ -65,6 +65,46 @@ test('store-prep UI target/scheme is separate and leaves the shipping version an
   assert.deepEqual([...shipping.matchAll(/MARKETING_VERSION: "([^"]+)"/g)].map(match => match[1]), [version, version]);
 });
 
+test('UI expected version/build matches independent package and shipping target release configuration', () => {
+  const expected = ui.match(/XCTAssertEqual\(version\.label, "版本 ([0-9]+\.[0-9]+\.[0-9]+)（构建 ([0-9]+(?:\.[0-9]+){0,2})）"\)/);
+  assert.ok(expected, 'UI test must assert an exact authored version/build, not its own observed label');
+  assert.match(ui, /XCTAssertTrue\(version\.waitForExistence\(timeout: 5\)\)/);
+  const packageVersion = JSON.parse(read('package.json')).version;
+  const globalBuild = project.split('\npackages:')[0].match(/CURRENT_PROJECT_VERSION: "([^"]+)"/)?.[1];
+  assert.ok(globalBuild, 'Global build number must be explicit');
+  const shipping = project.split('  CabinDirect:\n')[1].split('  CabinDirectStorePrepUITests:\n')[0];
+  const targets = [shipping.split('  DirectBroadcastExtension:\n')[0], shipping.split('  DirectBroadcastExtension:\n')[1]];
+  assert.ok(targets.every(Boolean), 'Both shipping target declarations must be checked');
+  for (const target of targets) {
+    const version = target.match(/MARKETING_VERSION: "([^"]+)"/)?.[1];
+    const build = target.match(/CURRENT_PROJECT_VERSION: "([^"]+)"/)?.[1] ?? globalBuild;
+    assert.equal(version, packageVersion);
+    assert.equal(expected[1], version, 'Update UI release expectation when shipping version changes');
+    assert.equal(expected[2], build, 'Update UI release expectation when shipping build changes');
+  }
+});
+
+test('light and dark Share inspect real default-off music controls without granting consent', () => {
+  const helper = ui.split('private func assertMusicDefaults(in app: XCUIApplication)')[1].split('private func launch(')[0];
+  assert.ok(helper);
+  assert.match(helper, /element\("setting\.music-mode", in: app\)/);
+  assert.match(helper, /reveal\(mode, identifier: "setting\.music-mode", in: app\)/);
+  assert.match(helper, /XCTAssertTrue\(mode\.isHittable/);
+  assert.match(helper, /mode\.label \+ " " \+ String\(describing: mode\.value \?\? ""\)/);
+  assert.match(helper, /selection\.contains\("关闭识曲与网络歌词"\)/);
+  assert.match(helper, /app\.switches\["consent\.network-lyrics"\]/);
+  assert.match(helper, /!lyricsConsent\.exists \|\| !isVisible\(lyricsConsent, in: app\)/);
+  assert.doesNotMatch(helper, /\.tap\(|setOn\(|launchArguments|launchEnvironment/);
+  assert.equal((ui.match(/assertMusicDefaults\(in: app\)/g) || []).length, 2);
+  const light = ui.split('func testLightNavigationAndPrivacy()')[1].split('func testVisibleTextRegionControls()')[0];
+  assert.ok(light.indexOf('attach("share-light"') < light.indexOf('assertMusicDefaults(in: app)'));
+  const dark = ui.split('func testDarkAndAccessibilityNavigation()')[1].split('private func assertMusicDefaults(')[0];
+  assert.ok(dark.indexOf('tapTab("tab.share"') < dark.indexOf('assertMusicDefaults(in: app)'));
+  assert.ok(dark.indexOf('assertMusicDefaults(in: app)') < dark.indexOf('dark-share-controls-verified'));
+  assert.match(app, /\.accessibilityIdentifier\("setting\.music-mode"\)/);
+  assert.match(app, /\.accessibilityIdentifier\("consent\.network-lyrics"\)/);
+});
+
 test('public session-only appearance setting drives the app while diagnostics still read actual environments', () => {
   assert.match(app, /@State private var appearanceChoice: DirectAppearanceChoice = \.system/);
   assert.match(app, /\.preferredColorScheme\(appearanceChoice\.colorScheme\)/);
