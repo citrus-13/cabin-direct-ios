@@ -81,7 +81,8 @@ test('simplified start validates settings but still requires fresh consent and t
   assert.match(sheet, /HTTP 未加密/);
   assert.match(app, /model\.requestStop\(\)[\s\S]*actionNotice = model\.stopPending \? nil : "请点 iPhone 顶部的录屏标记停止投屏。"/);
   assert.match(app, /guard let value = model\.status, value\.isCurrent else \{ return nil \}/);
-  assert.match(app, /model\.session\?\.id == status\.sessionID else \{ return \[\] \}/);
+  assert.match(app, /guard addressPresentation\.state == \.listening,/);
+  assert.match(source('ios/Shared/DirectConfiguration.swift'), /guard status\.isCurrent\(at: now\), status\.sessionID == sessionID else/);
 });
 
 test('original application icon is opaque RGB at 1024 square', () => {
@@ -120,7 +121,25 @@ test('V1 shared native contracts execute without iOS runtime or network access',
   assert.equal(build.status, 0, build.stderr || build.error?.message);
   const run = spawnSync(executable, [], { encoding: 'utf8', timeout: 15_000 });
   assert.equal(run.status, 0, run.stderr || run.stdout);
-  assert.match(run.stdout, /Shared native macOS acceptance: 17 cases, 0 failures/);
+  assert.match(run.stdout, /Shared native macOS acceptance: 21 cases, 0 failures/);
+});
+
+test('idle address preview is passive, current and explicitly separated from listening and pairing', () => {
+  const app = source('ios/StandaloneApp/CabinDirectApp.swift');
+  const shared = source('ios/Shared/DirectConfiguration.swift');
+  const home = app.split('private var shareView: some View')[1].split('private func prepareBroadcast()')[0];
+  const policy = shared.split('struct DirectAddressPresentation {')[1].split('struct DirectObservationGate')[0];
+  assert.match(home, /\n            connectionSection\n/);
+  assert.doesNotMatch(home, /if currentStatus != nil \{ connectionSection \}/);
+  assert.match(app, /if observed != observedAddresses \{ observedAddresses = observed \}/);
+  assert.match(app, /DirectNetworkAddresses\.prioritized\(addressProvider\(\)\)/);
+  assert.match(app, /case \.notStarted: return "尚未开始投屏"/);
+  assert.match(app, /可先收藏；开始投屏后才能打开。换网络后地址可能变化。/);
+  assert.match(app, /\.onChange\(of: receiverURLs\) \{ _ in copied = "" \}/);
+  assert.match(policy, /stopPending \|\| status\?\.state == "stopping"/);
+  assert.match(policy, /state: \.unconfirmed, urls: \[\]/);
+  assert.match(policy, /DirectNetworkAddresses\.prioritized\(observed\)/);
+  assert.doesNotMatch(policy, /\.fresh\(|saveSettings|saveSession|setStatus|NWListener|URLSession|\.start\(/);
 });
 
 test('shared session cleanup is serialized and cannot delete or overwrite a newer session', t => {

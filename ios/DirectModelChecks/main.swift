@@ -25,8 +25,10 @@ enum DirectModelChecks {
             try FileManager.default.createDirectory(at: empty, withIntermediateDirectories: false)
             DirectSessionStore.testContainer = live
 
-            let model = DirectSetupModel()
+            var interfaces = [DirectInterfaceAddress(interface: "en0", address: "192.168.7.20")]
+            let model = DirectSetupModel(addressProvider: { interfaces })
             expect(model.status == nil && model.session == nil && model.measuredFPS == nil)
+            expect(model.observedAddresses == interfaces)
             var changes = 0, statusChanges = 0, sessionChanges = 0, fpsChanges = 0
             var subscriptions = Set<AnyCancellable>()
             model.objectWillChange.sink { changes += 1 }.store(in: &subscriptions)
@@ -37,6 +39,17 @@ enum DirectModelChecks {
             for _ in 0..<10 { model.refresh() }
             idleEvents = changes
             expect(changes == 0 && statusChanges == 0 && sessionChanges == 0 && fpsChanges == 0)
+            let beforeNetwork = changes
+            interfaces = [.init(interface: "en0", address: "192.168.8.30")]
+            model.refresh()
+            expect(model.observedAddresses == interfaces && changes - beforeNetwork == 1)
+            interfaces = []; model.refresh()
+            expect(model.observedAddresses.isEmpty && changes - beforeNetwork == 2)
+            for _ in 0..<10 { model.refresh() }
+            expect(changes - beforeNetwork == 2)
+            expect(model.session == nil && model.status == nil && !model.active && !model.stopPending)
+            expect(DirectSessionStore.session() == nil && DirectSessionStore.status() == nil)
+            expect(!FileManager.default.fileExists(atPath: live.appendingPathComponent("direct-settings.json").path))
 
             // Deliberately synthetic local fixture values, never printed or used
             // for a server. The real store methods and OS file lock are exercised.

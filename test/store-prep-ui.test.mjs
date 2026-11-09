@@ -193,6 +193,11 @@ test('home and settings reject removed diagnostics while tests never trigger pre
   assert.match(ui, /XCTAssertEqual\(app\.tabBars\.buttons\.count, 2\)/);
   assert.match(ui, /XCTAssertTrue\(selected\.isSelected/);
   assert.match(ui, /element\("action\.broadcast\.prepare", in: app\)\.exists/);
+  assert.match(ui, /XCTAssertEqual\(addressStatus\.label, "尚未开始投屏"\)/);
+  assert.match(ui, /XCTAssertEqual\(url\?\.port, 8787\)/);
+  assert.match(ui, /XCTAssertNil\(url\?\.query/);
+  assert.match(ui, /XCTAssertFalse\(element\("action\.receiver\.copy-code", in: app\)\.exists\)/);
+  assert.match(ui, /element\("network\.address-unavailable", in: app\)\.exists/);
   assert.match(ui, /XCTAssertFalse\(element\(identifier, in: app\)\.exists/);
   assert.match(ui, /"help\.diagnostics", "notice\.device-unverified", "action\.diagnostics\.copy"/);
   assert.match(ui, /"开发验证版", "实机验收", "测试报告", "DEMO", "原创演示"/);

@@ -16,12 +16,15 @@ final class DirectSetupModel: ObservableObject {
     @Published var saved = false
     @Published var stopPending = false
     @Published var measuredFPS: Double?
+    @Published private(set) var observedAddresses: [DirectInterfaceAddress] = []
+    private let addressProvider: () -> [DirectInterfaceAddress]
     private(set) var preparedSettings: DirectSettings?
     private var stoppingSessionID: String?
     private var recoveredUnconfirmedSessionID: String?
     private var previousSample: DirectRuntimeStatus?
 
-    init() {
+    init(addressProvider: @escaping () -> [DirectInterfaceAddress] = { DirectNetworkAddresses.current() }) {
+        self.addressProvider = addressProvider
         if let stored = try? DirectSessionStore.settings() {
             settings = stored; preparedSettings = stored; saved = true
         }
@@ -31,6 +34,10 @@ final class DirectSetupModel: ObservableObject {
     var active: Bool { status?.isCurrent == true }
 
     func refresh() {
+        // Passive interface enumeration only. Publish changes, not every timer
+        // tick; never retain yesterday's URL as today's bookmark preview.
+        let observed = DirectNetworkAddresses.prioritized(addressProvider())
+        if observed != observedAddresses { observedAddresses = observed }
         let next = DirectSessionStore.status()
         if let next, next.isCurrent, let previousSample,
            next.sessionID == previousSample.sessionID,
@@ -117,15 +124,16 @@ struct DirectSetupView: View {
         return value
     }
     private var pairRemaining: Int {
-        guard let status = currentStatus, status.port > 0,
+        guard addressPresentation.state == .listening,
+              let status = currentStatus, status.port > 0,
               let session = model.session, session.id == status.sessionID else { return 0 }
         return max(0, Int(ceil(min(session.createdAt + 120, session.expiresAt) - Date().timeIntervalSince1970)))
     }
-    private var receiverURLs: [String] {
-        guard let status = currentStatus, status.port > 0,
-              model.session?.id == status.sessionID else { return [] }
-        return DirectNetworkAddresses.urls(addresses: status.addresses, port: status.port)
+    private var addressPresentation: DirectAddressPresentation {
+        DirectAddressPresentation.resolve(status: model.status, sessionID: model.session?.id,
+            stopPending: model.stopPending, observed: model.observedAddresses, configuredPort: model.settings.port)
     }
+    private var receiverURLs: [String] { addressPresentation.urls }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -165,6 +173,7 @@ struct DirectSetupView: View {
         .onChange(of: model.settings) { _ in
             if !settingsLocked, model.settings != model.preparedSettings { model.saved = false }
         }
+        .onChange(of: receiverURLs) { _ in copied = "" }
         .confirmationDialog("已经在系统里停止投屏了吗？", isPresented: $confirmPendingRecovery,
                             titleVisibility: .visible) {
             Button("已检查，返回操作") { model.releasePendingAfterSystemCheck() }
@@ -215,12 +224,13 @@ struct DirectSetupView: View {
                 }
                 if let actionNotice { Text(actionNotice).font(.footnote).foregroundStyle(.secondary) }
             }
-            if currentStatus != nil { connectionSection }
+            connectionSection
             Section {
                 DisclosureGroup("如何连接") {
                     Text("手机开热点：先让车机连接这台 iPhone 的个人热点，再开始投屏。")
                     Text("家里 Wi-Fi 或另一台设备的热点：手机和车机连接同一个网络，再开始投屏。")
-                    Text("连接地址自动整理，无需手选模式。网络切换后重新开始投屏；不需要 Mac 中转。")
+                    Text("可先将首页地址存为车机书签；开始投屏后才能打开。换网络后地址可能变化，请核对首页。")
+                    Text("网络切换后重新开始投屏；不需要 Mac 中转。")
                     Text("若车机打不开地址，可尝试其他地址，并确认允许 Cabin 访问本地网络。访客网络可能不允许设备互连。")
                 }
                 .font(.footnote).foregroundStyle(.secondary)
@@ -373,23 +383,30 @@ struct DirectSetupView: View {
     }
 
     private var connectionSection: some View {
-        Section("在车机浏览器打开") {
-            if let status = currentStatus {
-                if receiverURLs.isEmpty {
-                    Text(status.port == 0 ? "正在准备连接地址…" : "请连接 Wi-Fi 或热点，并允许本地网络访问。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                if let address = receiverURLs.first {
-                    receiverAddressRow(address, identifier: "action.receiver.copy-address")
-                }
-                if receiverURLs.count > 1 {
-                    DisclosureGroup("打不开？试试其他地址") {
-                        ForEach(Array(receiverURLs.dropFirst().enumerated()), id: \.offset) { entry in
-                            receiverAddressRow(entry.element, identifier: "action.receiver.copy-alternative-\(entry.offset)")
-                        }
+        Section("车机连接地址") {
+            Text(addressCaption).font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("network.address-status")
+            if let address = receiverURLs.first {
+                receiverAddressRow(address, identifier: "action.receiver.copy-address")
+            } else if addressPresentation.state == .notStarted || addressPresentation.state == .listening {
+                Text("先让车机连接这台手机的热点，或连接同一 Wi-Fi。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("network.address-unavailable")
+            }
+            if receiverURLs.count > 1 {
+                DisclosureGroup("打不开？试试其他地址") {
+                    ForEach(Array(receiverURLs.dropFirst().enumerated()), id: \.offset) { entry in
+                        receiverAddressRow(entry.element, identifier: "action.receiver.copy-alternative-\(entry.offset)")
                     }
-                    .accessibilityIdentifier("network.alternative-addresses")
                 }
+                .accessibilityIdentifier("network.alternative-addresses")
+            }
+            if addressPresentation.state == .notStarted, !receiverURLs.isEmpty {
+                Text("可先收藏；开始投屏后才能打开。换网络后地址可能变化。")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("network.bookmark-guidance")
+            }
+            if addressPresentation.state == .listening {
                 if pairRemaining > 0, let session = model.session {
                     Text(session.pairingCode)
                         .font(.system(.largeTitle, design: .monospaced).weight(.bold))
@@ -398,7 +415,7 @@ struct DirectSetupView: View {
                         .accessibilityIdentifier("action.receiver.copy-code")
                     Text("打开地址后输入此码，\(pairRemaining) 秒内有效。")
                         .font(.footnote).foregroundStyle(.secondary)
-                } else if status.port > 0 {
+                } else {
                     Text("配对码已过期。新设备连接时，请停止后重新开始。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -407,9 +424,20 @@ struct DirectSetupView: View {
         }
     }
 
+    private var addressCaption: String {
+        switch addressPresentation.state {
+        case .notStarted: return "尚未开始投屏"
+        case .preparing: return "正在准备连接地址…"
+        case .listening: return "在车机浏览器打开此地址。"
+        case .unconfirmed: return "投屏状态待确认，请检查 iPhone 顶部录屏标记。"
+        case .stopping: return "正在停止投屏…"
+        }
+    }
+
     private func receiverAddressRow(_ address: String, identifier: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                .accessibilityIdentifier(identifier + ".value")
             Button { copy(address, label: "地址已复制") } label: {
                 Label("复制地址", systemImage: "doc.on.doc")
             }.font(.footnote).accessibilityIdentifier(identifier)
@@ -417,8 +445,9 @@ struct DirectSetupView: View {
     }
 
     private var statusTitle: String {
+        if addressPresentation.state == .stopping { return "正在停止…" }
+        if addressPresentation.state == .unconfirmed { return "连接中断，请检查系统投屏状态" }
         guard let status = model.status else { return "准备就绪" }
-        if model.stopPending || status.state == "stopping" { return "正在停止…" }
         if ["stopped", "ended"].contains(status.state) { return "已停止" }
         if status.state == "error" { return "投屏中断" }
         guard status.isCurrent else { return "连接中断，请检查系统投屏状态" }

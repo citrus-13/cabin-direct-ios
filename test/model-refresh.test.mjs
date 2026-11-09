@@ -38,7 +38,7 @@ test('production model refresh emits only necessary idle changes while preservin
   assert.equal(result.stderr, '');
   const counts = JSON.parse(result.stdout.trim());
   assert.ok(Object.values(counts).every(value => Number.isInteger(value) && value >= 0), 'Native output contains counts only');
-  assert.equal(counts.failures, 0); assert.equal(counts.runtime_errors, 0); assert.ok(counts.checks >= 12);
+  assert.equal(counts.failures, 0); assert.equal(counts.runtime_errors, 0); assert.ok(counts.checks >= 20);
   assert.equal(counts.idle_events, 0); assert.equal(counts.cleared_idle_events, 0);
   assert.equal(counts.repeated_status_events, 10); assert.equal(counts.repeated_session_events, 10);
   assert.equal(counts.heartbeat_fps_events, 1); assert.ok(counts.expiry_events > 0); assert.ok(counts.cleared_events >= 2);

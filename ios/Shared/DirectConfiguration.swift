@@ -217,9 +217,40 @@ struct DirectRuntimeStatus: Codable {
     let port: UInt16
     let frames: UInt64
     let updatedAt: Double
-    var isCurrent: Bool {
-        let age = Date().timeIntervalSince1970 - updatedAt
+    var isCurrent: Bool { isCurrent(at: Date().timeIntervalSince1970) }
+    func isCurrent(at now: Double) -> Bool {
+        let age = now - updatedAt
         return age >= -2 && age < 8 && ["starting", "waiting", "broadcasting", "paused", "stale"].contains(state)
+    }
+}
+
+/// A prospective bookmark is not a listener or a pairing credential. Pure UI
+/// policy: never starts services, creates sessions, writes settings or probes peers.
+struct DirectAddressPresentation {
+    enum State { case notStarted, preparing, listening, unconfirmed, stopping }
+    let state: State
+    let urls: [String]
+
+    static func resolve(status: DirectRuntimeStatus?, sessionID: String?, stopPending: Bool,
+                        observed: [DirectInterfaceAddress], configuredPort: UInt16,
+                        now: Double = Date().timeIntervalSince1970) -> Self {
+        if stopPending || status?.state == "stopping" {
+            return Self(state: .stopping, urls: [])
+        }
+        if let sessionID, status == nil || status?.sessionID != sessionID {
+            return Self(state: .unconfirmed, urls: [])
+        }
+        if let status, !["stopped", "ended", "error"].contains(status.state) {
+            guard status.isCurrent(at: now), status.sessionID == sessionID else {
+                return Self(state: .unconfirmed, urls: [])
+            }
+            guard status.port > 0 else { return Self(state: .preparing, urls: []) }
+            return Self(state: .listening,
+                        urls: DirectNetworkAddresses.urls(addresses: status.addresses, port: status.port))
+        }
+        let addresses = DirectNetworkAddresses.prioritized(observed).map(\.address)
+        return Self(state: .notStarted,
+                    urls: DirectNetworkAddresses.urls(addresses: addresses, port: configuredPort))
     }
 }
 

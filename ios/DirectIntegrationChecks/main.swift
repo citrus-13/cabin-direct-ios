@@ -220,6 +220,85 @@ run("Network transitions require a new user session instead of stale IPv6 advert
     check(!DirectNetworkAddresses.matches(initial: [], current: []), "No network is not a valid session")
 }
 
+run("Idle bookmark previews use observed addresses and configured port without inventing a listener") {
+    let wifi = DirectInterfaceAddress(interface: "en0", address: "192.168.7.20")
+    let ipv6 = DirectInterfaceAddress(interface: "en0", address: "fd12::2")
+    let preview = DirectAddressPresentation.resolve(status: nil, sessionID: nil, stopPending: false,
+        observed: [ipv6, wifi, wifi, .init(interface: "utun0", address: "10.1.2.3")], configuredPort: 9898)
+    check(preview.state == .notStarted, "A bookmark is explicitly not running")
+    check(preview.urls == ["http://192.168.7.20:9898", "http://[fd12::2]:9898"], "Observed unique addresses and actual configured port")
+    check(DirectAddressPresentation.resolve(status: nil, sessionID: "old-session", stopPending: false,
+        observed: [], configuredPort: 8787).urls.isEmpty, "No invented or saved address when offline")
+    check(DirectAddressPresentation.resolve(status: nil, sessionID: nil, stopPending: false,
+        observed: [wifi], configuredPort: 0).urls.isEmpty, "Invalid configured port cannot be bookmarked")
+}
+
+run("Stopped previews follow the present network not the previous broadcast") {
+    let now = 1_800_000_000.0
+    for terminal in ["stopped", "ended", "error"] {
+        let old = DirectRuntimeStatus(sessionID: "old", state: terminal, message: "", addresses: ["192.168.1.10"],
+            port: 9000, frames: 1, updatedAt: now - 90)
+        for observed in [[DirectInterfaceAddress(interface: "en0", address: "192.168.2.20")], []] {
+            let preview = DirectAddressPresentation.resolve(status: old, sessionID: "old", stopPending: false,
+                observed: observed, configuredPort: 8787, now: now)
+            check(preview.state == .notStarted, "Confirmed terminal state permits preview")
+            check(preview.urls == (observed.isEmpty ? [] : ["http://192.168.2.20:8787"]), "Old runtime address and port never leak into preview")
+        }
+    }
+}
+
+run("Active bookmark UI preserves matching fresh runtime ports and unknown-state boundaries") {
+    let now = 1_800_000_000.0
+    let observed = [DirectInterfaceAddress(interface: "en0", address: "192.168.2.20")]
+    for state in ["starting", "waiting", "broadcasting", "paused", "stale"] {
+        let status = DirectRuntimeStatus(sessionID: "current", state: state, message: "", addresses: ["192.168.1.10"],
+            port: 9000, frames: 1, updatedAt: now)
+        let active = DirectAddressPresentation.resolve(status: status, sessionID: "current", stopPending: false,
+            observed: observed, configuredPort: 8787, now: now)
+        check(active.state == .listening && active.urls == ["http://192.168.1.10:9000"], "Fresh runtime remains authoritative, including paused/stale frames")
+        for sessionID: String? in [nil, "different"] {
+            let mismatch = DirectAddressPresentation.resolve(status: status, sessionID: sessionID, stopPending: false,
+                observed: observed, configuredPort: 8787, now: now)
+            check(mismatch.state == .unconfirmed && mismatch.urls.isEmpty, "Missing/mismatched sessions expose neither live nor misleading preview URLs")
+        }
+        for instant in [now + 8, now - 3, .nan, .infinity] {
+            let expired = DirectAddressPresentation.resolve(status: status, sessionID: "current", stopPending: false,
+                observed: observed, configuredPort: 8787, now: instant)
+            check(expired.state == .unconfirmed && expired.urls.isEmpty, "Expired or invalid heartbeat is not evidence of a stopped extension")
+        }
+    }
+    let starting = DirectRuntimeStatus(sessionID: "current", state: "starting", message: "", addresses: [],
+        port: 0, frames: 0, updatedAt: now)
+    let pending = DirectAddressPresentation.resolve(status: starting, sessionID: "current", stopPending: false,
+        observed: observed, configuredPort: 8787, now: now)
+    check(pending.state == .preparing && pending.urls.isEmpty, "No preview substituted while listener starts")
+    let orphan = DirectAddressPresentation.resolve(status: nil, sessionID: "current", stopPending: false,
+        observed: observed, configuredPort: 8787, now: now)
+    check(orphan.state == .unconfirmed && orphan.urls.isEmpty, "Missing runtime status cannot declare an orphan session idle")
+    let oldTerminal = DirectRuntimeStatus(sessionID: "old", state: "stopped", message: "", addresses: [],
+        port: 0, frames: 0, updatedAt: now)
+    let mismatch = DirectAddressPresentation.resolve(status: oldTerminal, sessionID: "current", stopPending: false,
+        observed: observed, configuredPort: 8787, now: now)
+    check(mismatch.state == .unconfirmed && mismatch.urls.isEmpty, "An old session's terminal status cannot confirm a newer session stopped")
+}
+
+run("Stop-pending bookmark UI cannot imply that broadcasting has already stopped") {
+    let now = 1_800_000_000.0
+    let observed = [DirectInterfaceAddress(interface: "en0", address: "192.168.2.20")]
+    let stopping = DirectRuntimeStatus(sessionID: "old", state: "stopping", message: "", addresses: ["192.168.1.10"],
+        port: 9000, frames: 1, updatedAt: now - 90)
+    let active = DirectRuntimeStatus(sessionID: "old", state: "broadcasting", message: "", addresses: ["192.168.1.10"],
+        port: 9000, frames: 1, updatedAt: now - 90)
+    for status: DirectRuntimeStatus? in [nil, stopping, active] {
+        let pending = DirectAddressPresentation.resolve(status: status, sessionID: "old", stopPending: true,
+            observed: observed, configuredPort: 8787, now: now)
+        check(pending.state == .stopping && pending.urls.isEmpty, "Pending stop never yields idle or pairable address")
+    }
+    let pending = DirectAddressPresentation.resolve(status: stopping, sessionID: "old", stopPending: false,
+        observed: observed, configuredPort: 8787, now: now)
+    check(pending.state == .stopping && pending.urls.isEmpty, "Explicit runtime stopping remains stopping without UI flag")
+}
+
 run("Stop requests are current-session scoped and expire without affecting future sessions") {
     let now = 1_800_000_000.0
     let session = try DirectBroadcastSession.fresh(settings: DirectSettings(), now: now)

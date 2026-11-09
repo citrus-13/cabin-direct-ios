@@ -33,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.5.2（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.5.3（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -126,6 +126,28 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
         XCTAssertTrue(element("share.network-guidance", in: app).exists)
         XCTAssertTrue(element("share.network-guidance", in: app).label.contains("这台手机的热点"))
+        let addressStatus = element("network.address-status", in: app)
+        reveal(addressStatus, identifier: "network.address-status", in: app, requiresHittable: false)
+        XCTAssertEqual(addressStatus.label, "尚未开始投屏")
+        let address = element("action.receiver.copy-address.value", in: app)
+        if address.exists {
+            reveal(address, identifier: "action.receiver.copy-address.value", in: app, requiresHittable: false)
+            let url = URLComponents(string: address.label)
+            XCTAssertEqual(url?.scheme, "http")
+            XCTAssertEqual(url?.port, 8787)
+            XCTAssertNotNil(url?.host)
+            XCTAssertNil(url?.query, "Bookmark must not embed pairing credentials")
+            let copy = element("action.receiver.copy-address", in: app)
+            reveal(copy, identifier: "action.receiver.copy-address", in: app)
+            XCTAssertTrue(copy.isHittable, "Copy control is available before capture; do not write the clipboard in this test")
+            XCTAssertTrue(element("network.bookmark-guidance", in: app).exists)
+        } else {
+            XCTAssertTrue(element("network.address-unavailable", in: app).exists,
+                          "No interface must show honest connection guidance rather than a fixture address")
+        }
+        XCTAssertFalse(element("action.receiver.copy-code", in: app).exists)
+        XCTAssertFalse(element("action.broadcast.stop", in: app).exists)
+        XCTAssertTrue(element("action.broadcast.prepare", in: app).isEnabled)
         assertNoDiagnostics(in: app)
         for phrase in ["开发验证版", "实机验收", "测试报告", "DEMO", "原创演示"] {
             XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists,
