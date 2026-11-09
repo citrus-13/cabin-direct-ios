@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const files = ['server.mjs'];
 files.push('ios/StandaloneWeb/direct.js');
+files.push('docs/connect.js');
 for (const folder of ['public', 'lib', 'scripts', 'test']) {
   for (const file of await readdir(new URL(`../${folder}/`, import.meta.url))) {
     if (/\.(mjs|js)$/.test(file)) files.push(`${folder}/${file}`);
