@@ -171,11 +171,12 @@ public final class LocalHTTPServer {
             var safe = state
             safe.captureState = String(safe.captureState.prefix(32)); safe.lyricState = String(safe.lyricState.prefix(32))
             safe.lyricLines = Array(safe.lyricLines.prefix(24)).map { String($0.prefix(200)) }
-            safe.source = ["visible-screen", "demo"].contains(safe.source) ? safe.source : "visible-screen"
+            safe.source = ["visible-screen", "demo", "microphone-lyrics"].contains(safe.source) ? safe.source : "visible-screen"
             safe.message = String(safe.message.prefix(512))
             if !safe.frameUpdatedAt.isFinite { safe.frameUpdatedAt = 0 }
             if !safe.lyricUpdatedAt.isFinite { safe.lyricUpdatedAt = 0 }
             safe.music = self.safeMusic(safe.music, captureState: safe.captureState)
+            if safe.source == "microphone-lyrics" || self.state.source == "microphone-lyrics" { self.frame = nil }
             self.state = safe
             if ["paused", "ended", "stopped", "waiting", "error"].contains(safe.captureState) { self.frame = nil }
         }
@@ -305,6 +306,7 @@ public final class LocalHTTPServer {
         return cookies.count == 1 && equal(String(cookies[0].dropFirst(13)), configuration.token)
     }
     private func currentFrame() -> LocalJPEGFrame? {
+        guard state.source != "microphone-lyrics" else { return nil }
         guard ["live", "broadcasting", "running", "capturing"].contains(state.captureState), let frame, now() - frame.updatedAt <= Self.staleAfter, now() >= frame.updatedAt - 1 else { return nil }; return frame
     }
     private func safeMusic(_ value: LocalMusicState?, captureState: String) -> LocalMusicState? {
@@ -335,6 +337,11 @@ public final class LocalHTTPServer {
     private func publicState() -> LocalPublicState {
         var result = state
         result.music = safeMusic(result.music, captureState: result.captureState)
+        if result.source == "microphone-lyrics" {
+            result.sequence = 0; result.frameUpdatedAt = 0; result.width = 0; result.height = 0
+            result.lyricState = "disabled"; result.lyricLines = []; result.lyricUpdatedAt = 0
+            return result
+        }
         if let frame = currentFrame() { result.sequence = frame.sequence; result.frameUpdatedAt = frame.updatedAt; result.width = frame.width; result.height = frame.height }
         else {
             if !["paused", "ended", "stopped", "waiting", "error"].contains(result.captureState) { result.captureState = "stale" }
@@ -369,6 +376,7 @@ public final class LocalHTTPServer {
             guard let frame = currentFrame() else { respond(client, 204); return }
             respond(client, 200, data: frame.data, type: "image/jpeg")
         default:
+            guard state.source != "microphone-lyrics" else { respond(client, 204); return }
             guard clients.values.filter({ $0.streaming }).count < 2 else { respond(client, 429); return }
             client.streaming = true
             send(client, data: Data(("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=cabinframe\r\n" + securityHeaders + "Connection: close\r\n\r\n").utf8), closeAfter: false)

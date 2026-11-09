@@ -1,63 +1,75 @@
-# Experimental music — developer preview, device acceptance pending
+# Music and lyrics — 0.6.0 development source, device acceptance pending
 
-Scope: [v0.5.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.5.0-preview.1), released 2026-11-08 from `4ec061dd1ca1399763a4ad36076af98932b1a664`. [The complete cloud run](https://github.com/citrus-13/cabin-direct-ios/actions/runs/42476798870) passed actual iOS Release compilation and 239 tests, zero failed/skipped. The downloaded 640,918-byte IPA, both executable hashes and identity-free metadata signatures were checked independently; the extension links ShazamKit. SHA-256: `9b6ccdf50c14128cf8220774bad74be65f55150db84df4d17f51b1f922cb3065`. The package still requires personal signing. Source/compile evidence is not Shazam service admission, actual recognition, phone installation, Tesla acceptance or App Store approval. Earlier 0.4.0 preview.3/preview.2 do not contain this music mode. Later documentation and legacy-target isolation maintenance does not change this tagged binary.
+Current source separates **歌词** (independent acoustic recognition) from **投屏** (ReplayKit). These modes are mutually exclusive and neither starts automatically. Selecting Lyrics does not request microphone permission or open a server; the user must explicitly start and accept the per-session notice. Settings remain a secondary page, not a diagnostics dashboard.
+
+Historical binary evidence only: [v0.5.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.5.0-preview.1), released 2026-11-08 from `4ec061dd1ca1399763a4ad36076af98932b1a664`. [The complete cloud run](https://github.com/citrus-13/cabin-direct-ios/actions/runs/42476798870) passed actual iOS Release compilation and 239 tests, zero failed/skipped. The downloaded 640,918-byte IPA, both executable hashes and identity-free metadata signatures were checked independently; the extension links ShazamKit. SHA-256: `9b6ccdf50c14128cf8220774bad74be65f55150db84df4d17f51b1f922cb3065`. The package still requires personal signing. Source/compile evidence is not Shazam service admission, actual recognition, phone installation, Tesla acceptance or App Store approval. Earlier 0.4.0 preview.3/preview.2 do not contain this music mode. Later documentation and legacy-target isolation maintenance does not change this tagged binary.
+
+That historical result does not validate 0.6.0 microphone capture, its background audio declaration or the new host listener. No 0.6.0 signed-device, free-service-admission or vehicle result is established by this document.
 
 ## Explicit choices and data flow
 
-Music mode and network lyrics are both OFF by default. Save the desired settings before personally starting the iOS system broadcast. An import or settings change never starts capture. The original foreground connection sample is not a music-recognition demonstration.
-
-| Choice | Processing and recipient | Not provided |
+| Mode/choice | Processing and recipient | Boundary |
 | --- | --- | --- |
-| Music OFF | No music recognition or external lyric lookup. Optional visible-region OCR remains a separate on-device setting. | No background-player discovery. |
-| Experimental app-audio recognition | While the user-started broadcast is active, accept only usable ReplayKit `audioApp` buffers, create a fingerprint and ask Apple/Shazam to match it. Apple receives the fingerprint, not raw audio forwarded by Cabin. | No microphone input, audio relay, recording archive, DRM bypass or guaranteed app coverage. |
-| Manual / Shortcut track | User supplies title, artist and starting position; no fingerprint recognition. Position is manually estimated. | No proof the named song is playing, and no pause/seek/change notifications. |
-| Separate LRCLIB consent | Send the selected/matched title and artist to `https://lrclib.net` to request current-track timed lyrics. A client-identification header names Cabin and its public project. | No music credentials, screenshot, microphone or app-audio payload sent to LRCLIB. |
+| Independent Lyrics | After per-session recognition/lyric consent and iOS microphone permission, the host listens to audible music with its built-in microphone. ShazamKit sends a signature to Apple/Shazam; matched title/artist go to LRCLIB for current-track lyrics. | No ReplayKit, screen frames/OCR, private Now Playing access, audio files or raw-audio upload. |
+| Screen music OFF | No recognition or external lyric lookup. Optional visible-region OCR is separate and on-device. | No microphone or background-player discovery. |
+| Screen app-audio recognition | Only an explicitly user-started broadcast accepts usable ReplayKit `audioApp` buffers for ShazamKit signatures. | ReplayKit `audioMic` is discarded; no fallback to microphone, raw-audio relay, DRM bypass or guaranteed app coverage. |
+| Screen manual / Shortcut track | User supplies title, artist and estimated starting position without fingerprint recognition. | No proof the track is actually playing; no real-time pause/seek/change notifications. |
+| Screen LRCLIB opt-in | Separate default-OFF consent allows matched/manual title and artist to be sent to `https://lrclib.net`. | Importing a draft keeps this OFF and starts no capture or lookup. |
 
-The paired browser receives only the bounded current metadata/lyric lines in addition to the existing screen/OCR transport, never an audio stream. Local HTTP is still unencrypted: use only a trusted network, not a publicly exposed listener. Third-party services necessarily receive requests and ordinary connection metadata such as IP address; this is no longer a wholly offline workflow when an opt-in is enabled.
+Independent Lyrics intentionally includes recognition and lyric retrieval in its visible per-session consent; it does not turn on or overwrite the saved screen-mode settings. The phone sends no music credentials, screen image or raw audio to LRCLIB. A client-identification header names Cabin and its public project. Both providers receive ordinary connection metadata such as IP address; consented recognition/lookup is not a wholly offline workflow.
 
-Raw app-audio buffers are transient recognition input, not saved media. Returned lyric data is retained only for the current track in runtime memory, not a downloaded library or disk cache. Stop/teardown clears runtime music state; pause, stale state and disconnect hide old receiver results. Manual title/artist/position and saved consent settings can persist as local settings/session configuration, unlike fetched lyric text. A receiver can independently copy what it displays; the app cannot erase those copies or promise forensic memory erasure.
+The paired browser gets bounded current metadata/lyric lines, never an audio stream. In independent Lyrics it gets no image frames or OCR at all. Local HTTP is unencrypted: use a trusted network and do not expose the listener publicly. Stop clears current runtime work; stale, paused or disconnected states hide old results. A receiver may independently copy displayed content, and Cabin cannot revoke copies or promise forensic memory erasure.
 
-## Background and matching limits
+Audio buffers are transient recognition input, not stored recordings. Lyrics are retained for the current track in memory, not a disk cache or downloaded library. Manual title/artist/offset and saved screen consent choices may persist as settings, unlike fetched lyric text. Acoustic session credentials stay in host memory, separate from ReplayKit's App Group session.
 
-Backgrounding the main app can leave its **already user-started system broadcast extension** active. This is not autonomous always-on background listening. No fake/silent audio keepalive, automatic broadcast start, private system-wide Now Playing API or microphone fallback is used. iOS may interrupt or stop a broadcast; locks, calls, headphones, playback routing, source apps and protected content require individual device tests.
+## Acoustic routing, lifecycle and background limits
 
-ReplayKit may provide silence or no usable app audio. Receiving sample callbacks alone is not success: the recognition path checks non-silent audio. Protected content is unsupported, not worked around. A music fragment in a live stream can match only if usable audio is supplied and the recording is recognizable in Shazam's catalog. No guarantee covers all songs, covers/remixes, advertisements, live performances or all streaming apps.
+The host requests AVAudioEngine input with AVAudioSession `playAndRecord`, `mixWithOthers`, `allowBluetoothA2DP` and the built-in microphone. It does not request HFP voice input, duck the player or deliberately redirect playback to the phone speaker. These are implementation requests, not proof of the actual iPhone/car route. Test that the original player continues and that the actual input remains the phone microphone on the target hardware.
 
-Shazam's matched offset plus elapsed time is an **estimate**, not the third-party player's transport state. Pauses, seeks and new songs may be invisible between recognition windows. Bounded freshness and audio-activity checks hide old results; manual timing is also limited and cannot auto-follow another player. Missing, mismatched, instrumental or untimed lyric results must remain honest unavailable states, never fabricated lyrics or exact word synchronization.
+The app declares background audio for this genuine user-started microphone session. Listening may continue when leaving or locking Cabin until Stop or an interruption/failure; there is no silent-audio keepalive, unattended automatic start or automatic restart. Background/lock reliability is **unverified**, not guaranteed by the declaration. Explicit Stop stops microphone capture, cancels recognition/lyric work, clears results and waits for local listener cleanup. Calls, audio-route changes, network changes, expiry or terminal service failure can stop the session.
 
-The current runtime queries lyrics with title/artist only, without verified recording duration or album identity. Even a title/artist match is a **candidate lyric version**, not proof the live/remastered/edited recording matches. Do not describe the resulting timed lines as guaranteed synchronization.
+Acoustic recognition needs music actually audible near the iPhone. Muting speakers, headphone-only playback, noise, unsupported recordings or catalog gaps can prevent a match. Silence/no-match remains an honest waiting state; the user-started mode can retry after bounded cooldowns and can be stopped. A service error is terminal for the session, not permission for paid fallback.
 
-## Free route and fallbacks
+The separate screen mode may continue through its already user-started ReplayKit extension after the host backgrounds. That is not microphone listening. ReplayKit can supply silence or no usable app audio, particularly for protected content. Sample callbacks alone do not prove recognition. No claim covers every platform, song, stream, live performance, cover or remix.
 
-No paid API key, paid recognition backend or account upgrade is built into this mode. This does **not** prove that the current free Personal Team can access Shazam's global catalog. Apple requires the App ID's ShazamKit **App Service** to be enabled; account/service admission must be verified separately on the actual signed device. On service failure, stop attempts for that broadcast and offer the manual/system-Shortcut route, not a paid signup or repeated signing changes.
+## Lyrics and timing
 
-Do not add `com.apple.developer.shazamkit`: Apple DTS identifies it as a nonexistent entitlement. App Service configuration is server-side; a missing made-up key in a profile is not a provisioning defect. Building source, installing both targets, free-signing renewal and App Group access are also separate checks; see [free installation](FREE_INSTALL.md). Future App Store distribution has separate membership, rights and submission requirements and is not promised to cost zero.
+Shazam's matched offset plus elapsed time is an **estimate**, not another player's live transport state. Pauses, seeks and track changes can be invisible between recognition windows. The receiver requires a fresh music heartbeat and a recent match independently of screen-frame freshness; old recognition cannot be kept valid by merely refreshing a heartbeat. Manual timing is also bounded and cannot auto-follow another player.
 
-Fallback: manually enter title/artist and an estimated starting offset, or build a **user-controlled** Shortcuts workflow using Apple's Recognize Music action and an Open URLs action. Pass URL-encoded values using this draft-only import shape:
+The runtime queries lyrics with title/artist, without verified recording duration or album identity. A matching name is a **candidate version**, not proof the live/remastered/edited recording matches. Missing, mismatched, instrumental or untimed results stay unavailable/no-lyrics states, never fabricated content or promised exact word synchronization.
+
+## No paid fallback; service admission remains unproven
+
+No paid API key, paid backend or membership upgrade is built into either music path. This does **not** prove the current free Personal Team can access Shazam's global catalog. Apple's actual App ID ShazamKit **App Service** must be admitted and verified on the signed target phone. On service failure the acoustic host stops the microphone; screen mode stops recognition attempts for that session. Neither purchases anything or repeatedly changes signing.
+
+Do not add `com.apple.developer.shazamkit`: Apple DTS identifies it as a nonexistent entitlement. App Service configuration is server-side. Signing, App Groups, installation, service admission and periodic free-signing renewal remain separate checks; see [free installation](FREE_INSTALL.md). Future App Store distribution has separate membership, rights and submission requirements and is not promised to cost zero.
+
+The retained screen-mode manual/system-Shortcut route is not an automatic acoustic fallback. A user-controlled Recognize Music / Open URLs workflow may fill a draft:
 
 ```text
 cabin-direct://track?title=Original%20Fixture&artist=Cabin%20Test&position=0
 ```
 
-The example names an original test fixture, not an actual song or bundled lyrics. `position` is seconds, not a trusted live playback offset. Import prepares manual draft settings, resets network lyrics consent to OFF, and does not start capture or make a lyric request. Review/save settings, separately choose LRCLIB access if desired, and personally start the system broadcast. No signed/installable Shortcut is supplied by these instructions. Apple's own Shazam app can identify some on-device/headphone playback, but that does not grant Cabin the same internal-audio access or prove this Shortcut chain on the target phone.
+This is an original fixture, not a bundled song/lyric. Import keeps network lyric consent OFF, starts no capture, and supplies only an estimated offset. Review the screen settings, opt into LRCLIB if desired and explicitly start the broadcast. No signed/installable Shortcut or successful target-phone Shortcut test is supplied here. Apple's own Shazam app having internal/headphone features does not grant Cabin those capabilities.
 
 ## LRCLIB and content rights
 
-LRCLIB documents free anonymous access without a mandatory API key. Identify the client; honor `429` and `Retry-After`, make bounded requests and do not bulk-download a library. Optional provider registration can supply an API-access authorization document; no registration or paid service is performed by this work.
+LRCLIB documents free anonymous API access without a mandatory key. Identify the client, honor `429`/`Retry-After`, bound requests and never bulk-download a library. This work performs no provider registration or paid-service signup.
 
-Free API access, open-source code and this repository's Apache-2.0 license **do not grant rights to third-party song lyrics**. No third-party lyrics or artwork are bundled as examples. Before distribution, verify permission under the service terms and rights to display lyrics in the intended territories; a service-access letter alone does not prove underlying lyric rights. Review the final binary, traffic and disclosures before claiming Data Not Collected or submission readiness.
+Free API access, open-source code and the repository's Apache-2.0 license **do not grant third-party lyric rights**. No third-party lyrics/artwork are bundled as examples. Verify provider terms and territorial display rights before distribution; a service-access letter is not proof of underlying lyric rights. Audit the final binary, traffic and provider disclosures before claiming Data Not Collected or submission readiness.
 
-## Acceptance checklist — evidence pending
+## Acceptance checklist — current device evidence pending
 
-- [x] Exact tagged source passed 239 cloud tests, including 18 executable offline music cases and 8 actual coordinator scenarios with fake recognizer/provider (no real audio or service calls). The local native runner separately passed 18 TCP, 8 capture, 36 retained research, 15 shared and 18 music checks. These are not device or external-service tests.
-- [x] Exact tagged source passed iOS Release app/extension compilation and package validation in run 42476798870. The independently downloaded extension links ShazamKit; no Apple signing identity/profile is included.
-- [ ] Actual free-account signing, App Groups and Shazam App Service admission verified without new purchases, fake entitlements or credential disclosure; if unavailable, verify honest failure and manual fallback.
-- [ ] On an installed iPhone, OFF mode makes no Shazam/LRCLIB requests; recognition-only mode sends no lyric request; separate lyric consent is required; no microphone buffers or audio stream reach the receiver.
-- [ ] Test actual non-silent permitted audio for each claimed app/route, including headphones and a live stream where relevant. All-zero/no-audio, no-match, service failure and denied/absent permissions remain non-success states.
-- [ ] Test a second paired browser receiving bounded current metadata/lines; missing lyrics, pure instrumental and wrong versions do not produce invented content.
-- [ ] Pause, resume, seek, track switch, calls, lock/unlock, main-app backgrounding, changed network, forced extension termination and explicit stop clear/hide stale state correctly; no always-on or exact-progress claim.
-- [ ] Verify Shortcut/manual import and starting-offset behavior on-device, including active-session rejection. No automatic capture or network-consent escalation.
-- [ ] Finalize rights, privacy disclosures, publisher contact and any provider permissions before a future release/submission. Real-device and vehicle evidence remain separate.
+- [x] Historical tagged 0.5.0 source passed 239 cloud tests, including 18 executable offline music cases and 8 actual coordinator scenarios with fake recognizer/provider (no real audio/service calls), plus iOS Release app/extension compilation in run 42476798870. Its local native runner separately passed 18 TCP, 8 capture, 36 retained-research, 15 shared and 18 music checks. These results and independently checked binary apply only to that revision, not 0.6.0 acoustic behavior or signed-device/service acceptance.
+- [ ] Exact 0.6.0 build/signing and installed host/extension checked independently; no simulator or source result substituted for a physical-device test.
+- [ ] Free Personal Team and actual Shazam App Service admission verified without new purchases, made-up entitlements or exposed credentials.
+- [ ] Opening/selecting Lyrics causes no permission/network/capture action; explicit start, denied permission, stop during permission, startup failure and stop/restart safely gate the microphone.
+- [ ] Actual audible music recognized through the built-in mic while playback remains on the intended car/speaker route; headphones, silence/no-match and service failure stay honest non-success states.
+- [ ] Lyrics-mode receiver never requests or receives screen frames; pairing, token expiry, stale recognition and disconnected-page cleanup verified.
+- [ ] Background, lock/unlock, calls, route change, network change, expiry and explicit stop checked on the phone, including microphone/lookup cleanup and absence of automatic restart.
+- [ ] Screen music OFF makes no recognition/lyric requests; recognition-only does not query LRCLIB; screen mode admits `audioApp`, never `audioMic`.
+- [ ] Missing lyrics, wrong recording versions, pause/seek/track changes and manual/Shortcut drafts do not fabricate or overclaim synchronization.
+- [ ] Publisher/contact, final privacy labels, provider/lyric rights and authorized submission remain separate gates. Vehicle acceptance remains separate from a second-browser test.
 
 ## Primary references checked 2026-11-08
 

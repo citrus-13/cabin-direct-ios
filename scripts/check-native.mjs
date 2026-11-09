@@ -65,6 +65,7 @@ if (execute('music-compile', 'swiftc', ['-swift-version', '5', '-module-cache-pa
   'ios/Shared/DirectMusicClock.swift', 'ios/DirectMusicChecks/main.swift', '-o', music])) execute('music-tests', music, []);
 execute('ios-source-parse-only', 'swiftc', ['-frontend', '-parse',
   'ios/StandaloneApp/CabinDirectApp.swift', 'ios/StandaloneApp/DirectDemoRuntime.swift', 'ios/StandaloneBroadcast/DirectSampleHandler.swift',
+  'ios/StandaloneApp/DirectLyricsMode.swift',
   'ios/StandaloneBroadcast/DirectMusicRuntime.swift', 'ios/StandaloneBroadcast/DirectMusicRecognizer.swift',
   'ios/Shared/SessionConfiguration.swift', 'ios/Shared/DirectConfiguration.swift', 'ios/Shared/DirectLyrics.swift',
   'ios/Shared/DirectMusicClock.swift']);

@@ -33,8 +33,30 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.5.3（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.6.0（构建 1）")
         attach("support-light", from: app)
+    }
+
+    @MainActor
+    func testLyricsModeDoesNotStartBroadcastOrMicrophone() {
+        let app = launch(appearance: .light)
+        defer { app.terminate() }
+        let selector = app.segmentedControls["home.mode"]
+        XCTAssertTrue(selector.waitForExistence(timeout: 5))
+        selector.buttons["歌词"].tap()
+        XCTAssertTrue(element("lyrics.headline", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(element("lyrics.start", in: app).exists)
+        XCTAssertFalse(element("action.system-broadcast-picker", in: app).exists)
+        XCTAssertFalse(element("lyrics.stop", in: app).exists)
+        attach("lyrics-light", from: app)
+        // Inspect the real pre-permission alert, then cancel. Never grant the
+        // microphone, invoke Shazam, or start a network listener in UI evidence.
+        tap("lyrics.start", in: app)
+        XCTAssertTrue(app.alerts["开始自动歌词？"].waitForExistence(timeout: 5))
+        app.alerts.buttons["取消"].tap()
+        XCTAssertFalse(element("lyrics.stop", in: app).exists)
+        selector.buttons["投屏"].tap()
+        XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
     }
 
     @MainActor
@@ -121,7 +143,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("share.headline", in: app).waitForExistence(timeout: 5))
         XCTAssertEqual(app.tabBars.buttons.count, 2)
         let share = app.tabBars.buttons["tab.share"]
-        let selected = share.exists ? share : app.tabBars.buttons["投屏"]
+        let selected = share.exists ? share : app.tabBars.buttons["首页"]
         XCTAssertTrue(selected.isSelected, "Projection must be the default tab")
         XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
         XCTAssertTrue(element("share.network-guidance", in: app).exists)

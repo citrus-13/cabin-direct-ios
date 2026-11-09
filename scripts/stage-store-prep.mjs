@@ -79,7 +79,7 @@ requireValue(report.evidence_kind === 'actual' && report.kind === 'simulator-sto
   report.owned_simulator_deleted === true && report.simulator_adhoc_signing === true, 'Actual simulator result required');
 for (const key of ['physical_iphone_test','vehicle_test','capture_test','app_store_approved','personal_signing','distribution_signing'])
   requireValue(report[key] === false,'Simulator evidence cannot claim hardware/capture/distribution success');
-requireValue(report.tests?.tests === 3 && report.tests.passed === 3 && report.tests.failed === 0 &&
+requireValue(report.tests?.tests === 4 && report.tests.passed === 4 && report.tests.failed === 0 &&
   report.tests.skipped === 0 && report.tests.expected_failures === 0 && report.screenshots?.length === SCREENSHOT_NAMES.length,
   'Complete real UI tests/screenshots required');
 for (const name of SCREENSHOT_NAMES) {

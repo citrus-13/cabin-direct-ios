@@ -24,8 +24,8 @@ test('single in-flight admission, bounded copies, owned conversion and real RMS 
   assert.match(source, /guard isAudible\(pcm\) else \{[\s\S]*clearWindow\(\)[\s\S]*return/);
   assert.match(source, /guard value\.isFinite, abs\(value\) <= 1\.5/);
   assert.match(source, /sqrt\(energy \/ Double\(buffer\.frameLength\)\) >= Self\.minimumRMS/);
-  assert.ok(source.indexOf('guard isAudible(pcm)') < source.indexOf('onAudioActivity?(Date()'));
-  assert.ok(source.indexOf('onAudioActivity?(Date()') < source.indexOf('let session = SHSession()'));
+  assert.ok(source.indexOf('guard isAudible(pcm)') < source.indexOf('onAudioActivity?(observedAt)'));
+  assert.ok(source.indexOf('onAudioActivity?(observedAt)') < source.indexOf('let session = SHSession()'));
 });
 
 test('recognition windows, retries and no-audio freshness are explicitly bounded', () => {

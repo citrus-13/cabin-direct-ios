@@ -148,6 +148,34 @@ final class LocalHTTPServerTests {
         let legacy = Data("{\"captureState\":\"waiting\",\"sequence\":0,\"frameUpdatedAt\":0,\"width\":0,\"height\":0,\"lyricState\":\"disabled\",\"lyricLines\":[],\"lyricUpdatedAt\":0,\"source\":\"visible-screen\",\"message\":\"\"}".utf8)
         XCTAssertEqual(try JSONDecoder().decode(LocalPublicState.self, from: legacy).music?.status, nil)
     }
+    func testMicrophoneLyricsSourceRejectsFramesAndNormalizesUnknownSources() throws {
+        let time = clock.now()
+        publish()
+        XCTAssertTrue(try request("/frame.jpg", headers: auth).contains("200 OK"))
+        // Even an erroneous live/frame payload cannot leak screen content in lyrics mode.
+        server.updateState(.init(captureState: "live", sequence: 9, frameUpdatedAt: time, width: 960, height: 540,
+                                 lyricState: "ready", lyricLines: ["screen secret"], lyricUpdatedAt: time,
+                                 source: "microphone-lyrics", music: .init(status: "lyrics", title: "Song", lines: ["lyric"], updatedAt: time, matchedAt: time)))
+        server.updateFrame(.init(data: Data([0xff, 0xd8, 0xff, 0xd9]), sequence: 10, updatedAt: time, width: 960, height: 540))
+        let response = try request("/api/state", headers: auth)
+        let state = try JSONDecoder().decode(LocalPublicState.self, from: Data(response.components(separatedBy: "\r\n\r\n").last!.utf8))
+        XCTAssertEqual(state.source, "microphone-lyrics"); XCTAssertEqual(state.width, 0); XCTAssertEqual(state.height, 0)
+        XCTAssertEqual(state.sequence, 0); XCTAssertEqual(state.frameUpdatedAt, 0)
+        XCTAssertEqual(state.lyricLines, []); XCTAssertEqual(state.lyricState, "disabled"); XCTAssertEqual(state.lyricUpdatedAt, 0)
+        XCTAssertEqual(state.music?.lines, ["lyric"])
+        for path in ["/frame.jpg", "/stream.mjpeg"] {
+            XCTAssertTrue(try request(path).contains("401"))
+            XCTAssertTrue(try request(path, headers: auth).contains("204 No Content"))
+        }
+        for source in ["lyrics", "microphone-lyrics-extra", "MICROPHONE-LYRICS", ""] {
+            server.updateState(.init(source: source))
+            XCTAssertTrue(try request("/api/state", headers: auth).contains("\"source\":\"visible-screen\""))
+        }
+        server.updateState(.init(captureState: "waiting", source: "microphone-lyrics", music: .init(status: "lyrics", lines: ["fresh"], updatedAt: time, matchedAt: time)))
+        XCTAssertEqual(try musicState()?.lines, ["fresh"])
+        clock.advance(5)
+        XCTAssertEqual(try musicState()?.status, "stale"); XCTAssertEqual(try musicState()?.lines, [])
+    }
     func testMusicBoundsSourcesStatusesAndNonfiniteValues() throws {
         let time = clock.now()
         server.updateState(.init(music: .init(status: "lyrics", title: String(repeating: "名", count: 300), artist: String(repeating: "a", count: 300), lines: Array(repeating: String(repeating: "x", count: 300), count: 40), updatedAt: time, matchedAt: time, position: .infinity, message: String(repeating: "m", count: 600))))
@@ -354,14 +382,14 @@ final class LocalHTTPServerTests {
 
 @main private struct TestRunner {
     static func main() {
-        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause"]
+        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause", "microphone-lyrics-source-frames"]
         var passed = 0
         for index in names.indices {
             let suite = LocalHTTPServerTests(), before = assertionFailures
             do {
                 try suite.setUpWithError()
                 let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds, suite.testUnpairOnlyClearsRequestingBrowserCookie, suite.testIPv6AllowlistIsExactNormalizedAndBounded, suite.testStopAcknowledgesCleanupAndRapidSamePortRestart, suite.testStartupDeadlineFailsOnceAndCleansListener]
-                let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata]
+                let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata, suite.testMicrophoneLyricsSourceRejectsFramesAndNormalizesUnknownSources]
                 try (tests + musicTests)[index]()
             } catch { XCTFail("\(names[index]): \(error)") }
             suite.tearDown()

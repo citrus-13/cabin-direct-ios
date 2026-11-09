@@ -132,7 +132,14 @@ function validateProject() {
     requireValue(typeof info.NSLocalNetworkUsageDescription === 'string' && info.NSLocalNetworkUsageDescription.length > 20, 'Local network explanation missing');
     requireValue(!info.NSBluetoothAlwaysUsageDescription && !info.NSBluetoothPeripheralUsageDescription && !info.TCKeychainAccessGroup,
       'Vehicle/Bluetooth/shared Keychain configuration must not be present in V1');
-    requireValue(!info.UIBackgroundModes?.length, 'V1 must not request unrelated background modes');
+    if (info === appInfo) {
+      requireValue(JSON.stringify(info.UIBackgroundModes) === JSON.stringify(['audio']) &&
+        typeof info.NSMicrophoneUsageDescription === 'string' && info.NSMicrophoneUsageDescription.length > 30,
+        'Lyrics mode must explain microphone use and request only legitimate audio background mode');
+    } else {
+      requireValue(!info.UIBackgroundModes?.length && !info.NSMicrophoneUsageDescription,
+        'Screen extension must not request microphone or background modes');
+    }
   }
   for (const entitlements of [appEntitlements, extensionEntitlements]) {
     requireValue(Object.keys(entitlements).every(key => key === 'com.apple.security.application-groups'), 'Unexpected V1 entitlement');
@@ -146,7 +153,7 @@ function validateProject() {
     extension?.RPBroadcastProcessMode === 'RPBroadcastProcessModeSampleBuffer' &&
     extension?.NSExtensionPrincipalClass?.endsWith('.DirectSampleHandler'), 'ReplayKit sample-buffer configuration invalid');
   for (const [file, expectedAPIs] of [
-    ['PrivacyInfo.xcprivacy', []],
+    ['PrivacyInfo.xcprivacy', capturePrivacyReasons],
     ['Privacy/Broadcast/PrivacyInfo.xcprivacy', capturePrivacyReasons]
   ]) {
     validatePrivacy(path.join(repo, 'ios', file), expectedAPIs, 'validate-privacy-' + (expectedAPIs.length ? 'broadcast' : 'app'));
@@ -205,7 +212,7 @@ if (!execute('generate-project', 'xcodegen', ['--spec', 'ios/project.yml', '--pr
       let privacyError = '';
       if (build.ok && report.unsigned_product_present) {
         try {
-          validatePrivacy(path.join(app, 'PrivacyInfo.xcprivacy'), [], 'validate-packaged-app-privacy');
+          validatePrivacy(path.join(app, 'PrivacyInfo.xcprivacy'), capturePrivacyReasons, 'validate-packaged-app-privacy');
           validatePrivacy(path.join(extension, 'PrivacyInfo.xcprivacy'), capturePrivacyReasons, 'validate-packaged-extension-privacy');
           report.packaged_privacy_manifests_verified = true;
         } catch (error) { privacyError = error.message; }

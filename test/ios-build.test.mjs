@@ -32,13 +32,13 @@ if (tool==='xcodegen') {
   common.CFBundleShortVersionString = process.env.FIXTURE_BAD_VERSION ? '1.0' : '$(MARKETING_VERSION)';
   common.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)';
   if(process.env.FIXTURE_BAD_PERMISSION) common.NSBluetoothAlwaysUsageDescription='Not allowed in V1';
-  put(path.join(root,'ios/Config/Direct-App-Info.plist'), common);
+  put(path.join(root,'ios/Config/Direct-App-Info.plist'), {...common,NSMicrophoneUsageDescription:'Listen to audible music for user-started automatic lyrics. No screen capture.',UIBackgroundModes:['audio']});
   put(path.join(root,'ios/Config/Direct-Broadcast-Info.plist'), {...common,NSExtension:{NSExtensionPointIdentifier:'com.apple.broadcast-services-upload',NSExtensionPrincipalClass:'$(PRODUCT_MODULE_NAME).DirectSampleHandler',RPBroadcastProcessMode:'RPBroadcastProcessModeSampleBuffer'}});
   const entitlements={'com.apple.security.application-groups':[common.TCAppGroupIdentifier]};
   if(process.env.FIXTURE_BAD_KEYCHAIN) entitlements['keychain-access-groups']=['forbidden-in-v1'];
   put(path.join(root,'ios/Config/Direct-App.entitlements'),entitlements);
   put(path.join(root,'ios/Config/Direct-Broadcast.entitlements'),process.env.FIXTURE_BAD_ENTITLEMENT?{}:entitlements);
-  put(path.join(root,'ios/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:!!process.env.FIXTURE_BAD_PRIVACY,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[]});
+  put(path.join(root,'ios/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:!!process.env.FIXTURE_BAD_PRIVACY,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:['35F9.1']}]});
   put(path.join(root,'ios/Privacy/Broadcast/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:false,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:[process.env.FIXTURE_BAD_API_REASON?'WRONG.1':'35F9.1']}]});
 } else if(tool==='plutil') {
   if(process.env.FIXTURE_INVALID_PLIST) { console.error('Simulated invalid plist'); process.exit(1); }

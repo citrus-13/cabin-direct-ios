@@ -14,12 +14,17 @@ test('V1 targets include optional music but exclude vehicle protocols and unrela
   assert.equal((legacy.match(/excludes: \[DirectConfiguration.swift, DirectLyrics.swift, DirectMusicClock.swift\]/g) || []).length, 2,
     'Legacy harness targets must not compile Cabin-only helpers without their settings type');
   const project = source('ios/project.yml').split('  CabinDirect:\n')[1].split('\nschemes:')[0];
-  assert.doesNotMatch(project, /TeslaBLE|Bluetooth|Keychain|keychain|UIBackgroundModes|WebRTC|NSMicrophoneUsageDescription/);
+  assert.doesNotMatch(project, /TeslaBLE|Bluetooth|Keychain|keychain|WebRTC/);
+  const host = project.split('  DirectBroadcastExtension:\n')[0];
+  assert.match(host, /NSMicrophoneUsageDescription:/);
+  assert.match(host, /UIBackgroundModes: \[audio\]/);
   const extension = project.split('  DirectBroadcastExtension:\n')[1].split('  CabinDirectStorePrepUITests:')[0];
   assert.match(extension, /Shared\/DirectLyrics\.swift/);
   assert.match(extension, /Shared\/DirectMusicClock\.swift/);
   assert.match(extension, /- StandaloneBroadcast/);
-  assert.doesNotMatch(project.split('  DirectBroadcastExtension:\n')[0], /DirectLyrics|DirectMusicClock/);
+  assert.match(host, /Shared\/DirectLyrics.swift/);
+  assert.match(host, /Shared\/DirectMusicClock.swift/);
+  assert.doesNotMatch(extension, /NSMicrophoneUsageDescription|UIBackgroundModes/);
   assert.equal((project.match(/path: StandaloneWeb/g) || []).length, 2, 'Same receiver is bundled for app demo and extension');
   assert.equal((project.match(/com.apple.security.application-groups:/g) || []).length, 2);
   assert.match(project, /Privacy\/Broadcast\/PrivacyInfo\.xcprivacy/);

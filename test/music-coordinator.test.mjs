@@ -34,7 +34,7 @@ test('actual Swift music coordinator handles fake callbacks, version cache, cons
   assert.equal(compiled.status, 0, compiled.stderr);
   const run = spawnSync(binary, [], { cwd: root, encoding: 'utf8', timeout: 20_000 });
   assert.equal(run.status, 0, run.stdout + run.stderr);
-  assert.equal((run.stdout.match(/^PASS /gm) || []).length, 8, run.stdout);
+  assert.equal((run.stdout.match(/^PASS /gm) || []).length, 15, run.stdout);
   assert.match(run.stdout, /no real audio, network or signed-device acceptance/);
   t.diagnostic(run.stdout.trim());
 });

@@ -107,6 +107,9 @@ final class DirectSetupModel: ObservableObject {
 
 struct DirectSetupView: View {
     @StateObject private var model = DirectSetupModel()
+    @StateObject private var lyrics = DirectLyricsMode()
+    @State private var displayMode: DirectDisplayMode = .screen
+    @State private var showLyricsConsent = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
     @State private var acknowledged = false
@@ -118,7 +121,7 @@ struct DirectSetupView: View {
     @ScaledMetric(relativeTo: .body) private var regionPreviewHeight: CGFloat = 170
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var settingsLocked: Bool { model.active || model.stopPending }
+    private var settingsLocked: Bool { model.active || model.stopPending || lyrics.busy }
     private var currentStatus: DirectRuntimeStatus? {
         guard let value = model.status, value.isCurrent else { return nil }
         return value
@@ -138,7 +141,7 @@ struct DirectSetupView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack { shareView.navigationTitle("Cabin") }
-                .tabItem { Label("投屏", systemImage: "rectangle.on.rectangle").accessibilityIdentifier("tab.share") }
+                .tabItem { Label("首页", systemImage: "rectangle.on.rectangle").accessibilityIdentifier("tab.share") }
                 .tag(0)
             NavigationStack { settingsView.navigationTitle("设置") }
                 .tabItem { Label("设置", systemImage: "gearshape").accessibilityIdentifier("tab.settings") }
@@ -147,6 +150,12 @@ struct DirectSetupView: View {
         .tint(.teal)
         .preferredColorScheme(appearanceChoice.colorScheme)
         .sheet(isPresented: $showBroadcast) { broadcastSheet }
+        .alert("开始自动歌词？", isPresented: $showLyricsConsent) {
+            Button("开始歌词") { lyrics.start(settings: model.settings, consent: true) }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("停车后使用。麦克风将持续听车内音乐，包括离开 App 或锁屏期间（系统允许时）。音频声纹交给 Apple / Shazam，歌名和歌手交给 LRCLIB 获取歌词。不共享屏幕、不保存录音；点停止歌词即关闭麦克风。仅与可信网络内的车机配对，本地 HTTP 未加密。")
+        }
         .onOpenURL { url in
             guard !settingsLocked, let track = DirectTrackImport.parse(url) else {
                 actionNotice = "请先停止投屏，再导入完整的歌名和歌手。"; return
@@ -168,6 +177,7 @@ struct DirectSetupView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { model.refresh() }
+            if phase == .background && lyrics.preparing { lyrics.stop(reason: "请回到 Cabin 再开始歌词。") }
             // Never stop the real ReplayKit extension merely because this app backgrounds.
         }
         .onChange(of: model.settings) { _ in
@@ -185,6 +195,17 @@ struct DirectSetupView: View {
 
     private var shareView: some View {
         List {
+            Section {
+                Picker("模式", selection: $displayMode) {
+                    Text("歌词").tag(DirectDisplayMode.lyrics)
+                    Text("投屏").tag(DirectDisplayMode.screen)
+                }.pickerStyle(.segmented)
+                    .disabled(settingsLocked)
+                    .accessibilityIdentifier("home.mode")
+            }
+            if displayMode == .lyrics {
+                lyricsSections
+            } else {
             Section {
                 VStack(alignment: .leading, spacing: 14) {
                     Image(systemName: "display.2").font(.system(size: 42)).foregroundStyle(.teal)
@@ -242,8 +263,73 @@ struct DirectSetupView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            }
         }
         .accessibilityIdentifier("screen.share")
+    }
+
+    @ViewBuilder private var lyricsSections: some View {
+        Section {
+            VStack(alignment: .leading, spacing: 14) {
+                Image(systemName: "music.note").font(.system(size: 42)).foregroundStyle(.teal)
+                Text("只听歌，只看歌词").font(.title2.bold())
+                    .accessibilityIdentifier("lyrics.headline")
+                Text("自动听车内播放的音乐，不用录屏，也不用输入歌名。")
+                    .foregroundStyle(.secondary)
+                Text(lyrics.message).font(.callout).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("lyrics.status")
+            }.padding(.vertical, 12)
+            if lyrics.busy {
+                Button(lyrics.stopping ? "正在停止…" : "停止歌词", role: .destructive) { lyrics.stop() }
+                    .disabled(lyrics.stopping).accessibilityIdentifier("lyrics.stop")
+            } else {
+                Button { showLyricsConsent = true } label: {
+                    Label("开始歌词", systemImage: "music.note")
+                        .font(.headline).frame(maxWidth: .infinity, minHeight: 34)
+                }.buttonStyle(.borderedProminent).disabled(model.active || model.stopPending)
+                    .accessibilityIdentifier("lyrics.start")
+            }
+        }
+        if let music = lyrics.music, !music.title.isEmpty {
+            Section {
+                Text(music.title).font(.headline)
+                Text(music.artist).foregroundStyle(.secondary)
+                ForEach(Array(music.lines.enumerated()), id: \.offset) { line in Text(line.element).font(.title3) }
+            }.accessibilityIdentifier("lyrics.track")
+        }
+        Section("车机连接地址") {
+            Text(lyrics.running ? "在车机浏览器打开此地址。" : "尚未开始歌词")
+                .font(.footnote).foregroundStyle(.secondary)
+            if let status = lyrics.status, status.isCurrent, status.port > 0,
+               let session = lyrics.session, status.sessionID == session.id, !lyrics.stopping {
+                ForEach(Array(DirectNetworkAddresses.urls(addresses: status.addresses, port: status.port).prefix(1)), id: \.self) { url in
+                    receiverAddressRow(url, identifier: "lyrics.address")
+                }
+                let remaining = max(0, Int(ceil(min(session.createdAt + 120, session.expiresAt) - Date().timeIntervalSince1970)))
+                if remaining > 0 {
+                    Text(session.pairingCode).font(.system(.largeTitle, design: .monospaced).weight(.bold))
+                    Text("打开地址后输入此码，\(remaining) 秒内有效。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("新车机需要连接时，请停止后重新开始歌词。").font(.footnote).foregroundStyle(.secondary)
+                }
+            } else if !lyrics.busy {
+                if let url = DirectNetworkAddresses.urls(addresses: model.observedAddresses.map(\.address), port: model.settings.port).first {
+                    receiverAddressRow(url, identifier: "lyrics.preview-address")
+                    Text("可先收藏，开始歌词后才能打开。").font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("先让车机连接手机热点，或连接同一 Wi-Fi。").foregroundStyle(.secondary)
+                }
+            }
+        }
+        Section {
+            DisclosureGroup("如何使用") {
+                Text("车机连接手机热点，或与手机连接同一 Wi-Fi。开始歌词后，在车机打开地址并输入配对码。")
+                Text("需要让手机听见车内扬声器的音乐。静音、耳机、噪声或曲库未收录时可能识别不到。换曲会自动再识别，不读取音乐 App 的账号或播放控制。")
+                Text("歌词进度依据识曲结果估算，不保证逐字同步。来电、音频或网络变化可能停止听歌；请只在停车时操作。")
+                Text("支持情况由识曲和歌词曲库决定，不保证每个平台的每首歌都能匹配。")
+            }.font(.footnote).foregroundStyle(.secondary)
+        }
     }
 
     private func prepareBroadcast() {
@@ -324,7 +410,7 @@ struct DirectSetupView: View {
                     Text("开启后将歌名和歌手发送至 LRCLIB，歌词显示给已配对设备。只用于你有权使用的内容。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-            } header: { Text("音乐") } footer: { Text("修改会在下次开始投屏时使用。") }
+            } header: { Text("投屏时的音乐") } footer: { Text("仅用于投屏模式。歌词模式自动听歌，不需要手动填写。") }
             .disabled(settingsLocked)
 
             Section("画面") {
@@ -481,6 +567,8 @@ struct DirectSetupView: View {
     }
 }
 
+private enum DirectDisplayMode: String { case lyrics, screen }
+
 private enum DirectAppearanceChoice: String, CaseIterable, Identifiable {
     case system, light, dark
     var id: String { rawValue }
@@ -512,13 +600,13 @@ private struct DirectPrivacyStatementView: View {
             }
             Section("共享什么") {
                 Text("画面可能包含通知和私人消息，建议使用专注模式。只共享你有权显示的内容；受保护视频可能无法投屏。")
-                Text("画面与提取的文字在手机本地处理，只发送给已配对的浏览器。不使用麦克风，不保存或转发音轨。声音继续由原播放器播放。")
+                Text("投屏模式的画面与提取文字在手机本地处理，只发送给已配对的浏览器。投屏不使用麦克风、不保存或转发音轨。声音继续由原播放器播放。")
                 Label("本地 HTTP 未加密，只使用可信网络。", systemImage: "lock.open")
                     .foregroundStyle(.secondary).accessibilityIdentifier("privacy.http-warning")
                 Text("配对码不等于加密。不要公开地址或配对码，也不要将服务开放到公网。")
             }
             Section("识曲和歌词") {
-                Text("两项功能默认关闭。选择自动识曲后，音频声纹会交给 Apple / Shazam。开启获取歌词后，歌名和歌手会发送至 LRCLIB。")
+                Text("两项功能都不会自动启动。歌词模式需要你确认后使用麦克风持续听歌，不共享屏幕、不保存录音；音频声纹交给 Apple / Shazam，歌名和歌手发送至 LRCLIB。停止后关闭麦克风。投屏模式中的识曲与歌词仍单独选择。")
                 Text("不会读取音乐账号或车辆数据。识曲、歌词覆盖和同步精度取决于音源与服务；只使用你有权使用的歌词。")
             }
             Section("保存与停止") {

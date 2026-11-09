@@ -31,7 +31,7 @@ function inventory() {
     supportedDeviceTypes: [{ identifier: device }] }],
   devicetypes: [{ identifier: device, name: 'iPhone 17 Pro Max', minRuntimeVersion: 26 * 65536, maxRuntimeVersion: 0xffffffff }] };
 }
-function summary() { return { result: 'Passed', totalTestCount: 3, passedTests: 3, failedTests: 0, skippedTests: 0, expectedFailures: 0 }; }
+function summary() { return { result: 'Passed', totalTestCount: 4, passedTests: 4, failedTests: 0, skippedTests: 0, expectedFailures: 0 }; }
 function tree() {
   return { testNodes: [{ nodeType: 'Test Plan', children: [{ nodeType: 'Unit test bundle', children:
     EXPECTED_TESTS.map(nodeIdentifier => ({ nodeType: 'Test Case', nodeIdentifier: 'CabinDirectStorePrepUITests/' + nodeIdentifier + '()', result: 'Passed' }))
@@ -120,8 +120,8 @@ test('[SIMULATED] external directories reject broad, source, overlapping, popula
 });
 
 test('[SIMULATED] structured XCTest validation requires exact successful identities and no skips', () => {
-  assert.deepEqual(validateTestResults(summary(), tree()), { tests: 3, passed: 3, failed: 0, skipped: 0, expected_failures: 0 });
-  for (const patch of [{ result: 'Failed' }, { totalTestCount: 4 }, { passedTests: 2 }, { skippedTests: 1 }, { failedTests: 1 },
+  assert.deepEqual(validateTestResults(summary(), tree()), { tests: 4, passed: 4, failed: 0, skipped: 0, expected_failures: 0 });
+  for (const patch of [{ result: 'Failed' }, { totalTestCount: 3 }, { passedTests: 2 }, { skippedTests: 1 }, { failedTests: 1 },
     { expectedFailures: 1 }, { passedTests: '3' }]) assert.throws(() => validateTestResults({ ...summary(), ...patch }, tree()));
   for (const field of ['result', 'totalTestCount', 'passedTests', 'skippedTests', 'failedTests']) {
     const input = summary(); delete input[field]; assert.throws(() => validateTestResults(input, tree()));
@@ -233,7 +233,7 @@ async function simulateRunner(options = {}) {
         else if (args[1] === 'export') {
           const selected = manifest(); if (options.missingScreenshot) selected[0].attachments.pop();
           files.set(work + '/attachments/manifest.json', Buffer.from(JSON.stringify(selected)));
-          for (let index = 0; index < 8; index++) files.set(work + '/attachments/synthetic-' + index + '.png', pngBytes);
+          for (let index = 0; index < SCREENSHOT_NAMES.length; index++) files.set(work + '/attachments/synthetic-' + index + '.png', pngBytes);
         } else assert.fail('Unexpected simulated xcresult command');
       } else assert.fail('Unexpected simulated subprocess');
       child.stdout.end(output); child.stderr.end(''); child.emit('close', status, null);
@@ -251,13 +251,13 @@ async function simulateRunner(options = {}) {
   return { report, calls, files, code: fakeProcess.exitCode, owned, consoleOutput };
 }
 
-test('[SIMULATED RUNNER] successful command flow validates and curates eight screenshots, then deletes only its simulator', async () => {
+test('[SIMULATED RUNNER] successful command flow validates and curates nine screenshots, then deletes only its simulator', async () => {
   const result = await simulateRunner();
   assert.equal(result.report.passed, true); assert.equal(result.report.owned_simulator_deleted, true);
   assert.equal(result.report.simulator_only, true); assert.equal(result.report.physical_iphone_test, false);
   assert.equal(result.report.capture_test, false); assert.equal(result.report.personal_signing, false);
-  assert.equal(result.report.screenshots.length, 8); assert.equal(result.code, 0); assert.equal(result.owned, null);
-  assert.equal([...result.files.keys()].filter(name => name.startsWith('/simulated/out/')).length, 9);
+  assert.equal(result.report.screenshots.length, 9); assert.equal(result.code, 0); assert.equal(result.owned, null);
+  assert.equal([...result.files.keys()].filter(name => name.startsWith('/simulated/out/')).length, SCREENSHOT_NAMES.length + 1);
   assert.equal(result.calls.filter(item => item.args[1] === 'create').length, 1);
   assert.doesNotMatch(JSON.stringify(result.report), /SYNTHETIC_NOT_REAL|\/simulated|11111111/);
 });

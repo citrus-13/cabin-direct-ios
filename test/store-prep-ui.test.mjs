@@ -134,14 +134,14 @@ test('public appearance control and About heading expose actual environments wit
   assert.match(ui, /String\(describing: control\.value \?\? ""\)/);
 });
 
-test('XCUITest contract is three genuine navigation checks and eight retained real-UI screenshots', () => {
+test('XCUITest contract is four genuine navigation checks and nine retained real-UI screenshots', () => {
   assert.deepEqual([...ui.matchAll(/func (test\w+)\(/g)].map(match => match[1]), [
-    'testLightNavigationAndPrivacy', 'testVisibleTextRegionControls', 'testDarkAndAccessibilityNavigation'
+    'testLightNavigationAndPrivacy', 'testLyricsModeDoesNotStartBroadcastOrMicrophone', 'testVisibleTextRegionControls', 'testDarkAndAccessibilityNavigation'
   ]);
   const screenshots = [...ui.matchAll(/attach\("([a-z-]+)"/g)].map(match => match[1]);
-  assert.equal(screenshots.length, 8);
+  assert.equal(screenshots.length, 9);
   assert.deepEqual(screenshots.toSorted(), [
-    'connect-light', 'share-light', 'privacy-light', 'support-light', 'visible-text-controls-light',
+    'connect-light', 'share-light', 'privacy-light', 'support-light', 'visible-text-controls-light', 'lyrics-light',
     'help-dark', 'privacy-accessibility', 'support-accessibility'
   ].toSorted());
   assert.match(ui, /XCTAttachment\(screenshot: app\.screenshot\(\)\)/);

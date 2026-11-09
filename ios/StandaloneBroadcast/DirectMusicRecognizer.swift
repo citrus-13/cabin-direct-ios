@@ -11,10 +11,10 @@ struct DirectRecognizedTrack {
     let recognitionID: String
 }
 
-/// Optional, consent-gated recognition of ReplayKit .audioApp samples only.
-/// The caller must never pass .audioMic samples, and must call tick() about once
-/// per second while the genuine user-started broadcast is running. No recording,
-/// file persistence, microphone access, playback session, or custom catalog.
+/// Optional, consent-gated recognition of ReplayKit .audioApp or host-owned PCM.
+/// The caller must never pass ReplayKit .audioMic samples, and must call tick()
+/// about once per second during a genuine user-started session. The host owns
+/// microphone permission and lifecycle; this class neither opens nor records it.
 /// ShazamKit generates a signature for Apple's catalog; availability is not
 /// promised for a free signing account. Any service error disables this instance.
 final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
@@ -24,6 +24,7 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
     private static let maxWindowDuration = 12.0
     private static let maxWindowAudio = 10.0
     private static let cooldown = 15.0
+    private static let maxCooldown = 60.0
     private static let maxFailures = 3
     private static let minimumRMS = 0.0001 // -80 dBFS; zero/protected audio is not activity.
 
@@ -36,11 +37,13 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
     private var paused = false
     private var disabled = false
     private var audioInFlight = false
+    private var audioGeneration: UInt64?
 
     // All remaining mutable state and every client callback belong to queue.
     private let onMatch: (DirectRecognizedTrack) -> Void
     private let onStatus: (String) -> Void
     private let onAudioActivity: ((Double) -> Void)?
+    private let continuousNoMatch: Bool
     private var matchingSession: SHSession?
     private var sessionGeneration: UInt64 = 0
     private var converter: AVAudioConverter?
@@ -56,10 +59,12 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
 
     init(onMatch: @escaping (DirectRecognizedTrack) -> Void,
          onStatus: @escaping (String) -> Void,
-         onAudioActivity: ((Double) -> Void)? = nil) {
+         onAudioActivity: ((Double) -> Void)? = nil,
+         continuousNoMatch: Bool = false) {
         self.onMatch = onMatch
         self.onStatus = onStatus
         self.onAudioActivity = onAudioActivity
+        self.continuousNoMatch = continuousNoMatch
         super.init()
         queue.setSpecific(key: queueKey, value: 1)
     }
@@ -70,17 +75,81 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
         guard !stopped, !paused, !disabled, !audioInFlight else { admission.unlock(); return }
         audioInFlight = true
         let token = generation
+        audioGeneration = token
         admission.unlock()
         queue.async { [weak self] in
             guard let self else { return }
             defer {
-                self.admission.lock(); self.audioInFlight = false; self.admission.unlock()
+                self.releaseAudio(token)
             }
             autoreleasepool {
                 guard self.isCurrent(token) else { return }
                 self.process(sample, generation: token)
             }
         }
+    }
+
+    /// The tap-owned buffer is valid only during this call. Copy at most 250 ms
+    /// before returning; never capture it in an escaping closure. Busy ingress
+    /// drops immediately. Conversion, RMS scanning and matching run off the tap.
+    func appendPCM(_ buffer: AVAudioPCMBuffer) {
+        guard admission.try() else { return }
+        guard !stopped, !paused, !disabled, !audioInFlight else { admission.unlock(); return }
+        audioInFlight = true
+        let token = generation
+        audioGeneration = token
+        admission.unlock()
+        let capturedAt = ProcessInfo.processInfo.systemUptime
+        let observedAt = Date().timeIntervalSince1970
+        guard let owned = Self.copyPCM(buffer) else { releaseAudio(token); return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            defer { self.releaseAudio(token) }
+            autoreleasepool {
+                guard self.isCurrent(token),
+                      ProcessInfo.processInfo.systemUptime - capturedAt <= Self.noAudioAfter else { return }
+                self.processOwned(owned, pts: capturedAt, activityAt: capturedAt,
+                                  observedAt: observedAt, generation: token)
+            }
+        }
+    }
+
+    private static func copyPCM(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let format = buffer.format
+        let rate = format.sampleRate
+        let frames = buffer.frameLength
+        let asbd = format.streamDescription.pointee
+        guard rate.isFinite, rate >= 8_000, rate <= 96_000,
+              (1...2).contains(format.channelCount),
+              [.pcmFormatFloat32, .pcmFormatInt16, .pcmFormatInt32].contains(format.commonFormat),
+              asbd.mFormatID == kAudioFormatLinearPCM,
+              (16...32).contains(asbd.mBitsPerChannel),
+              asbd.mBytesPerFrame > 0, asbd.mBytesPerFrame <= 8,
+              frames > 0, frames <= 24_000, frames <= buffer.frameCapacity,
+              Double(frames) / rate <= Self.maxChunkDuration else { return nil }
+        let source = UnsafeMutableAudioBufferListPointer(buffer.mutableAudioBufferList)
+        let expectedBuffers = format.isInterleaved ? 1 : Int(format.channelCount)
+        guard source.count == expectedBuffers,
+              let owned = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else { return nil }
+        owned.frameLength = frames
+        let destination = UnsafeMutableAudioBufferListPointer(owned.mutableAudioBufferList)
+        let byteCount = Int(frames) * Int(asbd.mBytesPerFrame)
+        guard destination.count == source.count, byteCount <= 192_000 else { return nil }
+        for index in 0..<source.count {
+            guard source[index].mNumberChannels == destination[index].mNumberChannels,
+                  Int(source[index].mDataByteSize) >= byteCount,
+                  Int(destination[index].mDataByteSize) >= byteCount,
+                  let input = source[index].mData, let output = destination[index].mData else { return nil }
+            output.copyMemory(from: input, byteCount: byteCount)
+        }
+        return owned
+    }
+
+    private func releaseAudio(_ token: UInt64) {
+        admission.lock(); defer { admission.unlock() }
+        // A stale completion must never release a different generation's slot.
+        guard audioGeneration == token else { return }
+        audioInFlight = false; audioGeneration = nil
     }
 
     func setPaused(_ value: Bool) {
@@ -112,7 +181,7 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
         }
     }
 
-    /// Use the broadcast's existing 1 Hz timer; this class starts no background timer.
+    /// Use the host/broadcast's 1 Hz timer; this class starts no background timer.
     func tick() {
         queue.async { [weak self] in
             guard let self, self.isActive else { return }
@@ -157,19 +226,30 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
 
         let pts = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(sample))
         guard pts.isFinite, pts >= 0 else { return }
-        if inputFormat != format || (expectedPTS.map { abs(pts - $0) > 0.1 } ?? false) {
+        processOwned(owned, pts: pts, activityAt: now,
+                     observedAt: Date().timeIntervalSince1970, generation: token)
+    }
+
+    private func processOwned(_ owned: AVAudioPCMBuffer, pts: Double, activityAt: Double,
+                              observedAt: Double, generation token: UInt64) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if matchingSession != nil && now - windowStarted >= Self.maxWindowDuration {
+            noMatch(now: now)
+        }
+        guard isCurrent(token) else { return }
+        if inputFormat != owned.format || (expectedPTS.map { abs(pts - $0) > 0.1 } ?? false) {
             // Never stitch a seek, format change, pause or dropped-audio gap into a match.
             clearWindow()
         }
-        expectedPTS = pts + Double(frames) / rate
+        expectedPTS = pts + Double(owned.frameLength) / owned.format.sampleRate
         guard let pcm = convert(owned), isCurrent(token) else { return }
         guard isAudible(pcm) else {
             // Never join music from opposite sides of a silent/protected interval.
             clearWindow()
             return
         }
-        lastActivity = now
-        onAudioActivity?(Date().timeIntervalSince1970)
+        lastActivity = activityAt
+        onAudioActivity?(observedAt)
         guard isCurrent(token), now >= nextAttempt else { return }
         if matchingSession == nil {
             let session = SHSession() // Native global catalog only; App Service may reject access.
@@ -263,9 +343,13 @@ final class DirectMusicRecognizer: NSObject, SHSessionDelegate {
 
     private func noMatch(now: Double) {
         clearWindow()
-        failures += 1
-        nextAttempt = now + Self.cooldown
-        if failures >= Self.maxFailures {
+        failures = min(failures + 1, Self.maxFailures)
+        nextAttempt = now + (continuousNoMatch ? min(Self.maxCooldown, Self.cooldown * pow(2.0, Double(failures - 1))) : Self.cooldown)
+        if continuousNoMatch {
+            // A no-match is not a service failure. Only explicit user-started
+            // acoustic tracking continues, with a capped 15/30/60 second gap.
+            status("no-match")
+        } else if failures >= Self.maxFailures {
             disable("no-match")
         } else {
             status("no-match")

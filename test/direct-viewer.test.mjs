@@ -196,6 +196,91 @@ test('explicit pairing supersedes the initial pending cookie check without polli
 });
 
 const music = (extra = {}) => ({ status: 'lyrics', title: 'Track', artist: 'Artist', lines: ['Music lyric'], updatedAt: 1000, matchedAt: 1000, position: 72.9, source: 'shazam', message: '', ...extra });
+const microphoneState = (extra = {}) => ({ source: 'microphone-lyrics', captureState: 'waiting', frameUpdatedAt: 0, width: 0, height: 0, lyricState: 'disabled', lyricLines: [], music: music(), ...extra });
+
+test('explicit microphone lyrics hides screen UI and never requests frames even with erroneous live fields', async () => {
+  const v = viewer();
+  v.requests[0].resolve(response(200, microphoneState({ captureState: 'live', width: 960, height: 540, frameUpdatedAt: 1000 }))); await flush();
+  assert.equal(v.nodes.get('stage').hidden, true);
+  assert.equal(v.nodes.get('screenModes').hidden, true);
+  assert.equal(v.nodes.get('screen').src, undefined);
+  assert.equal(v.nodes.get('viewerTitle').textContent, '音乐与歌词');
+  assert.equal(v.nodes.get('musicPanel').hidden, false);
+  assert.equal(v.nodes.get('musicLines').children[0].textContent, 'Music lyric');
+  assert.match(v.nodes.get('captureNote').textContent, /麦克风.*不共享屏幕.*不读取其他应用/);
+  v.nodes.get('screen').fire('error'); v.nodes.get('screen').fire('load'); v.modes[0].fire('click');
+  v.advance(4500); v.interval();
+  assert.equal(v.nodes.get('musicPanel').hidden, true, 'Music heartbeat freshness still expires');
+  assert.equal(v.nodes.get('stage').hidden, true);
+  v.tick(1000); v.requests.at(-1).resolve(response(200, microphoneState({ music: music({ updatedAt: 1004.5 }) }))); await flush();
+  assert.equal(v.nodes.get('musicPanel').hidden, false);
+  assert.ok(v.requests.every(item => item.path === '/api/state'));
+});
+
+test('only exact microphone source selects lyrics UI; returning to screen restores screen controls', async () => {
+  for (const source of ['lyrics', 'microphone-lyrics-extra', 'MICROPHONE-LYRICS', undefined]) {
+    const v = viewer(); v.requests[0].resolve(response(200, v.live({ source }))); await flush();
+    assert.equal(v.nodes.get('stage').hidden, false);
+    assert.equal(v.nodes.get('screenModes').hidden, false);
+    assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
+  }
+  const v = viewer(); v.requests[0].resolve(response(200, microphoneState())); await flush();
+  v.tick(1000); v.requests.at(-1).resolve(response(200, v.live({ source: 'visible-screen' }))); await flush();
+  assert.equal(v.nodes.get('stage').hidden, false); assert.equal(v.nodes.get('screenModes').hidden, false);
+  assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
+});
+
+test('screen-to-lyrics transition invalidates pending snapshot headers and blobs, including a later screen return', async () => {
+  for (const delayed of ['headers', 'blob']) {
+    const v = viewer(); await startLive(v); v.nodes.get('screen').fire('error'); await flush();
+    const oldFrame = v.requests.at(-1), blob = deferred();
+    assert.equal(oldFrame.path, '/frame.jpg');
+    if (delayed === 'blob') { oldFrame.resolve({ ...response(200), blob: () => blob.promise }); await flush(); }
+    v.tick(1000); v.requests.at(-1).resolve(response(200, microphoneState())); await flush();
+    const requestCount = v.requests.length;
+    v.nodes.get('screen').fire('error'); v.advance(4500); v.interval();
+    assert.equal(v.requests.length, requestCount, 'Stale image events do not request another snapshot');
+    assert.equal(v.nodes.get('screen').src, undefined);
+    v.tick(1000); v.requests.at(-1).resolve(response(200, v.live({ source: 'visible-screen' }))); await flush();
+    if (delayed === 'headers') oldFrame.resolve(response(200)); else blob.resolve({ staleScreen: true });
+    await flush();
+    assert.equal(v.created, 0, 'Old snapshot never obtains an object URL');
+    assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
+  }
+});
+
+test('microphone waiting and unavailable guidance is acoustic and curated; disconnect clears lyrics', async () => {
+  const v = viewer(); v.requests[0].resolve(response(200, microphoneState({ music: music({ status: 'waiting' }) }))); await flush();
+  assert.equal(v.nodes.get('musicTitle').textContent, '等待周围音乐');
+  assert.match(v.nodes.get('musicMessage').textContent, /车内音响或扬声器/);
+  v.tick(1000); v.requests.at(-1).resolve(response(200, microphoneState({ music: music({ status: 'unavailable', message: 'secret diagnostic' }) }))); await flush();
+  assert.match(v.nodes.get('musicMessage').textContent, /麦克风权限和网络连接/);
+  assert.doesNotMatch(v.nodes.get('musicMessage').textContent, /secret/);
+  await v.disconnect();
+  assert.equal(v.nodes.get('musicPanel').hidden, true); assert.equal(v.nodes.get('screen').src, undefined);
+  assert.equal(v.requests.at(-1).path, '/api/unpair');
+  assert.ok(v.requests.every(item => !['/frame.jpg', '/stream.mjpeg'].includes(item.path)));
+});
+
+test('microphone lyrics retain hidden/offline/auth failure and recognition TTL clearing', async () => {
+  for (const stop of ['hidden', 'offline', 'unauthorized', 'expired', 'fetch-error', 'recognition-expired']) {
+    const v = viewer(); v.requests[0].resolve(response(200, microphoneState())); await flush();
+    if (stop === 'hidden') { v.document.hidden = true; v.handlers.get('visibilitychange')(); }
+    else if (stop === 'offline') v.handlers.get('offline')();
+    else {
+      if (stop === 'recognition-expired') v.advance(31000);
+      v.tick(1000);
+      if (stop === 'fetch-error') v.requests.at(-1).reject(new Error('lost'));
+      else if (stop === 'recognition-expired') v.requests.at(-1).resolve(response(200, microphoneState({ music: music({ updatedAt: 1031 }) })));
+      else v.requests.at(-1).resolve(response(stop === 'expired' ? 410 : 401));
+    }
+    await flush();
+    assert.equal(v.nodes.get('musicPanel').hidden, true, stop);
+    assert.equal(v.nodes.get('musicLines').children.length, 0, stop);
+    assert.equal(v.nodes.get('screen').src, undefined, stop);
+    assert.ok(v.requests.every(item => item.path === '/api/state'), stop);
+  }
+});
 
 test('music is a separate opt-in panel: fresh audio survives stale video, never becomes OCR', async () => {
   const v = viewer();

@@ -5,7 +5,7 @@
   let paired = false, failures = 0, streamActive = false, snapshotMode = false;
   let objectURL = null, pollTimer = null, lastLiveAt = 0, snapshotBusy = null, generation = 0, streamWatchdog = null;
   let enabled = true, epoch = 0, pollBusy = null, loggingOut = false;
-  let musicFreshness = null;
+  let musicFreshness = null, lyricsOnly = false;
   const pending = new Set();
   try { enabled = sessionStorage.getItem('cabin-disconnected') !== '1'; } catch (_) {}
   const current = version => enabled && epoch === version;
@@ -40,7 +40,7 @@
     const hasTrack = ['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status);
     $('musicPanel').hidden = false;
     $('musicSource').textContent = music.source === 'manual' ? '手动选曲' : '自动识曲';
-    $('musicTitle').textContent = hasTrack ? text(music.title) : music.status === 'unavailable' ? '识曲服务不可用' : music.status === 'recognizing' ? '正在识别音乐' : '等待应用音频';
+    $('musicTitle').textContent = hasTrack ? text(music.title) : music.status === 'unavailable' ? '识曲服务不可用' : music.status === 'recognizing' ? '正在识别音乐' : lyricsOnly ? '等待周围音乐' : '等待应用音频';
     $('musicArtist').textContent = hasTrack ? text(music.artist) : '';
     if (hasTrack && typeof music.position === 'number' && Number.isFinite(music.position) && music.position >= 0 && music.position <= 86400) {
       const seconds = Math.floor(music.position);
@@ -50,8 +50,8 @@
     $('musicLines').replaceChildren(...lines.map(line => { const node = document.createElement('p'); node.textContent = text(line); return node; }));
     $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 暂无匹配歌词。' :
       music.status === 'loading' ? '正在获取 LRCLIB 歌词。' : music.status === 'lyrics' ? '歌词：LRCLIB · 估算显示，可能不同步。' : '';
-    $('musicMessage').textContent = music.status === 'unavailable' ? '请在 iPhone 检查识曲设置，或手动选曲。' :
-      music.status === 'waiting' ? '请在手机播放音乐，并开启识曲。' : music.status === 'recognizing' ? '请保持音乐播放。' : '';
+    $('musicMessage').textContent = music.status === 'unavailable' ? (lyricsOnly ? '请在 iPhone 检查麦克风权限和网络连接。' : '请在 iPhone 检查识曲设置，或手动选曲。') :
+      music.status === 'waiting' ? (lyricsOnly ? '请让 iPhone 听到车内音响或扬声器播放的音乐。' : '请在手机播放音乐，并开启识曲。') : music.status === 'recognizing' ? '请保持音乐播放。' : '';
   }
   async function request(path, options = {}) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 2500);
@@ -69,7 +69,7 @@
   }
   function lostPairing() {
     halt(); status('需要重新配对');
-    $('pairError').textContent = '会话已结束。请在手机上重新开始广播或演示，获取新的配对码。';
+    $('pairError').textContent = '会话已结束。请在手机上重新开始会话，获取新的配对码。';
   }
   async function disconnect() {
     halt(); loggingOut = true; $('pairButton').disabled = true; $('pairCode').value = '';
@@ -84,17 +84,17 @@
     } finally { loggingOut = false; $('pairButton').disabled = false; }
   }
   async function snapshot() {
-    if (snapshotBusy || !enabled || !paired) return;
+    if (snapshotBusy || !enabled || !paired || lyricsOnly) return;
     const ticket = {}; snapshotBusy = ticket;
     const version = generation, session = epoch;
     try {
       const response = await request('/frame.jpg');
-      if (!current(session) || !paired || generation !== version) return;
+      if (!current(session) || !paired || lyricsOnly || generation !== version) return;
       if (response.status === 401 || response.status === 410) { lostPairing(); return; }
       if (response.status === 204) { clearImage(); return; }
       if (!response.ok) throw new Error('snapshot');
       const blob = await response.blob();
-      if (!current(session) || generation !== version || !paired) return;
+      if (!current(session) || generation !== version || !paired || lyricsOnly) return;
       if (objectURL) URL.revokeObjectURL(objectURL);
       objectURL = URL.createObjectURL(blob); screen.src = objectURL; screen.hidden = false; $('empty').hidden = true;
       $('streamMode').textContent = '兼容模式 · 单帧刷新';
@@ -102,6 +102,7 @@
     finally { if (snapshotBusy === ticket) snapshotBusy = null; }
   }
   function displayFrame() {
+    if (lyricsOnly) return;
     if (snapshotMode) { void snapshot(); return; }
     if (!streamActive) {
       streamActive = true; screen.src = '/stream.mjpeg'; screen.hidden = false; $('empty').hidden = true;
@@ -112,7 +113,7 @@
   }
   screen.addEventListener('load', () => clearTimeout(streamWatchdog));
   screen.addEventListener('error', () => {
-    if (!enabled || !paired || !screen.hasAttribute('src')) return;
+    if (!enabled || !paired || lyricsOnly || !screen.hasAttribute('src')) return;
     if (!snapshotMode) { snapshotMode = true; clearImage('切换兼容显示', '此浏览器使用单帧显示。'); void snapshot(); }
     else clearImage('等待新画面', '无法读取画面，请检查手机广播。');
   });
@@ -131,13 +132,25 @@
       if (!current(session)) return;
       if (document.hidden || !navigator.onLine) { clearImage('等待接收页面恢复'); clearMusic(); schedule(3000); return; }
       showPaired(); failures = 0;
+      const nextLyricsOnly = state.source === 'microphone-lyrics';
+      if (nextLyricsOnly !== lyricsOnly) {
+        clearImage(); lastLiveAt = 0; snapshotMode = false;
+      }
+      lyricsOnly = nextLyricsOnly;
+      $('stage').hidden = lyricsOnly; $('screenModes').hidden = lyricsOnly;
       const demo = state.source === 'demo';
       $('demoBanner').hidden = !demo;
-      $('viewerTitle').textContent = demo ? 'DEMO · 原创演示' : '本地屏幕共享';
+      $('viewerTitle').textContent = lyricsOnly ? '音乐与歌词' : demo ? 'DEMO · 原创演示' : '本地屏幕共享';
       screen.alt = demo ? 'DEMO 原创合成演示画面，非真实手机屏幕' : 'iPhone 共享屏幕';
       const age = Date.now() / 1000 - Number(state.frameUpdatedAt);
       const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) && age >= -2 && age <= 4 && state.width > 0;
       displayMusic(state);
+      if (lyricsOnly) {
+        clearImage(); lastLiveAt = 0;
+        $('captureNote').textContent = '通过 iPhone 麦克风识别周围音乐；不共享屏幕，不读取其他应用的播放信息。';
+        status(musicFreshness ? '歌词模式 · 本地连接' : '歌词模式 · 等待音乐状态', true);
+        schedule(1000); return;
+      }
       $('captureNote').textContent = demo ? '原创合成演示，非手机画面。' : live ? '正在接收手机画面。' :
         state.captureState === 'paused' ? '请在 iPhone 恢复共享。' : '请在 iPhone 开始共享。';
       if (!live) {
@@ -171,13 +184,14 @@
     try {
       const response = await request('/api/pair', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({code: $('pairCode').value})});
       if (!current(session)) return;
-      if (!response.ok) throw new Error(response.status === 429 ? '错误次数已达上限，请在手机上重新开始广播或演示。' : response.status === 410 ? '配对码已过期，请在手机上重新开始广播或演示。' : '配对未成功，请检查手机上的六位码。');
+      if (!response.ok) throw new Error(response.status === 429 ? '错误次数已达上限，请在手机上重新开始会话。' : response.status === 410 ? '配对码已过期，请在手机上重新开始会话。' : '配对未成功，请检查手机上的六位码。');
       try { sessionStorage.removeItem('cabin-disconnected'); } catch (_) {}
       $('pairCode').value = ''; snapshotMode = false; showPaired(); void poll();
     } catch (error) { if (current(session)) { enabled = false; $('pairError').textContent = error.name === 'AbortError' ? '连接超时，请检查同一热点或 Wi-Fi。' : error.message; } }
     finally { if (epoch === session) $('pairButton').disabled = false; }
   });
   document.querySelectorAll('[data-mode]').forEach(button => button.addEventListener('click', () => {
+    if (lyricsOnly) return;
     $('stage').className = `stage mode-${button.dataset.mode}`;
     document.querySelectorAll('[data-mode]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
   }));
@@ -195,7 +209,7 @@
   window.addEventListener('online', () => schedule(0));
   document.addEventListener('visibilitychange', () => { if (!enabled) return; if (document.hidden) { clearImage('页面已隐藏'); clearMusic(); } else schedule(0); });
   setInterval(() => {
-    if (enabled && paired && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。');
+    if (enabled && paired && !lyricsOnly && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。');
     if (musicFreshness && !musicIsFresh(musicFreshness)) clearMusic();
   }, 500);
   if (enabled) void poll(); else status('本页已断开 · 等待手动配对');

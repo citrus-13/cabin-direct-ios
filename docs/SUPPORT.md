@@ -1,43 +1,53 @@
 # Cabin Direct — help and support preparation
 
-This is public self-help for the developer preview, not a staffed support service or a finalized App Store Support URL. The publisher's public name and contact method await explicit confirmation. The repository issue tracker is currently disabled; no private-report channel or response time is promised. Do not post personal information here.
+This is self-help for 0.6.0 development source, not a staffed support service or finalized App Store Support URL. Publisher name/contact remain unconfirmed; no private-report channel or response time is promised. Do not post personal information. Earlier preview downloads do not acquire the independent acoustic mode through these instructions; verify the actual app/build first.
+
+## Choose a mode
+
+**首页 → 歌词 → 开始歌词:** read the per-session microphone/provider notice and allow iOS microphone access. Let the iPhone hear music from car speakers or another audible source. No recording-screen picker is needed and no screen frames are shared. The host tries to identify the song through Apple/Shazam and obtains candidate lyrics from LRCLIB. Start and Stop are explicit; selecting a mode alone does nothing. Free Personal Team service admission is unproven, so automatic recognition may be unavailable even if the app builds or installs.
+
+**首页 → 投屏 → 开始投屏:** settings are validated/saved, then you acknowledge the notice and personally confirm the real iOS broadcast picker. Display only permitted, non-sensitive visible content. Optional screen music and lyric access are separate default-OFF settings, using ReplayKit app audio only, not the microphone. Manual/Shortcut import creates a draft, keeps lyric networking OFF and never starts capture.
+
+The two modes are mutually exclusive. **设置** holds screen music, lyric and OCR options, privacy and About. The original development sample and diagnostic screens are not ordinary app workflows. No new subscription, paid API or account upgrade is required by these instructions, and failure does not authorize a purchase.
 
 ## Connect safely
 
-Use your own trusted Wi-Fi/hotspot. The iPhone and receiver browser must actually reach one another; a matching network name alone is insufficient. Guest isolation, VPN routing and vehicle-browser policy can prevent access. The app does not change your VPN, guess hotspot addresses, open public ports or provide a developer relay.
+Use a trusted Wi-Fi/hotspot. For this iPhone's Personal Hotspot, connect the receiver first; for another hotspot/Wi-Fi, connect both devices. Mutual reachability is necessary: the same network name alone proves nothing. Guest isolation, VPN routing and browser policy can block access. Cabin does not change your VPN, invent hotspot addresses, scan networks, open public ports or use a developer relay.
 
-In current 0.5.3 source, there is one automatic local-network flow. For **this iPhone's Personal Hotspot**, connect the car/browser to that hotspot first. For **home Wi-Fi or another device's hotspot**, connect both phone and receiver to that network. Opening Cabin shows the current observed local address under **车机连接地址**, labelled **尚未开始投屏**. You may copy/bookmark it in advance, but the webpage will not serve content before broadcasting. With no eligible interface, connection guidance replaces the address; an old address is not cached as a current one. Changing networks can change the bookmark target. Passive address discovery starts no listener, capture, pairing session or network probe and writes no settings. Expired/ambiguous runtime state and pending stops retain uncertainty/stopping labels rather than claiming idle.
+An observed local address may be previewed/bookmarked while the mode is stopped, but is marked inactive; no page is served until a session starts. No eligible interface means guidance instead of a guessed/old address. After starting, use the current address and separate six-digit pairing code within 120 seconds; five wrong attempts are allowed. Codes are not embedded in URLs. Check a bookmark still matches the current address.
 
-Then open **投屏 → 开始投屏**, review the short sharing notice and personally confirm the iOS system broadcast panel. Settings are saved when you start; there is no separate save or diagnostic step. On the receiver browser, open the address (check it still matches Cabin if using a bookmark) and enter the separate six-digit code within 120 seconds. Display only content that permits recording. Audio stays with your original player/audio route.
+IPv4 is preferred; eligible IPv6 addresses can also be used. Screen mode offers collapsed alternative addresses. Interface filtering is not a firewall or proof of connectivity. A changed eligible interface/address set ends the session; inspect the new trusted network, explicitly restart and pair again. Physical hotspot/Wi-Fi and vehicle-browser acceptance are still required. **HTTP is unencrypted**, so never expose the listener publicly.
 
-Only actual observed, eligible interface addresses are offered. IPv4 is preferred and IPv6 remains available; extra candidates are under **打不开？试试其他地址**. Known tunnel, cellular and peer-only interface prefixes are excluded from discovery, but ordering is not proof that a receiver can reach a listener. Discovery filtering is not a firewall: the local listener binding is unchanged. There is no synthesized gateway, automatic VPN change, public relay, or network scan. If no address is available, connect the receiver first and retry. A changed eligible interface/address set still ends sharing and requires a fresh explicit start and pairing. Physical tests of each hotspot/Wi-Fi setup remain required; guest isolation and vehicle browser policy can block access.
+## Listening, playback and stopping
 
-**设置** contains music recognition, optional lyrics and visible-text extraction. Those choices apply to the next broadcast. The original sample and diagnostic screens are no longer part of the app interface; their development fixtures remain in the source tests.
+Lyrics listens through the phone's built-in microphone, not the car microphone or a private music-account API. It requests mixing without ducking and A2DP eligibility; actual Bluetooth/player coexistence must be verified on the target phone. Music must be audible nearby: headphones, mute, noise and catalog gaps may prevent matching.
 
-Current source also offers [experimental music](MUSIC.md), absent from preview.3/preview.2: both app-audio recognition and separate LRCLIB access default OFF. It consumes no microphone buffers, saves no recording and relays no audio. Recognition only works with system-provided usable app audio and actual Shazam service admission, not every music/streaming app. Manual/Shortcut import is draft-only, leaves network access OFF and never starts capture.
+A genuine user-started microphone session may continue after leaving or locking Cabin. Explicitly stop when finished. Background/lock reliability is unverified; there is no silent-audio keepalive or automatic restart. Stop Lyrics closes the microphone, cancels recognition/lyric work and ends the local session. Calls, audio-route/network changes, expiry or service failure can stop it too.
+
+Stop Screen Sharing waits for matching-extension cleanup; iOS recording controls can also end capture. Backgrounding Cabin does not itself stop ReplayKit. Heartbeat timeout or releasing a waiting UI is not proof capture ended. The browser can disconnect locally without stopping either source mode. Normal stop does not erase saved preferences or receiver copies.
 
 ## Common problems
 
 | Symptom | Safe check |
 | --- | --- |
-| No address | Check reachability and iOS local-network permission. Do not expose the port publicly. |
+| No address/page | Connect the devices, check local-network permission and start the intended mode. A preview address is not a live listener. Do not expose the port publicly. |
 | Pairing failed/expired | Five wrong attempts and a 120-second initial window apply. Stop/start a new session instead of guessing. |
-| Black/no image | Check system broadcast state and permitted visible content. Protected content may be unavailable; no DRM bypass is provided. |
-| Old/blank image | Pause, stale state or disconnect hides old content intentionally. A heartbeat does not prove receipt. |
-| Network changed | Interface/address changes stop the source; inspect the new trusted network and restart/re-pair. |
-| Stop waits | Use iOS's recording indicator/Control Center to check/end capture. UI recovery alone is not stop confirmation. |
-| Installation expired | Personal Team provisioning is time-limited. See the [signing guide](INSTALL.md); do not buy anything just to troubleshoot. |
-| Music unavailable / no audio | Verify you are testing new source, not preview.3. Check the explicit setting and active user-started broadcast. Silence, protected content or App Service denial is not success; use manual/system-Shortcut input rather than a paid signup or fake entitlement. |
-| Lyrics missing / timing wrong | LRCLIB access requires separate consent; a track may have no timed lyrics. Matching/manual offsets are estimates and cannot read another player's pause/seek state. Do not infer live synchronization or fabricate missing lyrics. |
+| Microphone denied | Allow Cabin microphone access in iOS settings if you want acoustic recognition; otherwise leave Lyrics stopped. Screen sharing does not require this microphone path. |
+| Lyrics waiting/no match | Make nearby music audible and check noise/catalog limitations. Silence or callbacks are not recognition proof; no lyrics are invented. |
+| Recognition unavailable | Network, provider or current signing/service admission may fail. Microphone mode stops safely. Do not buy membership or add a fake entitlement; see [music limits](MUSIC.md). |
+| Lyrics absent/timing wrong | A candidate recording may have no timed lyrics or be a different version. Offsets are estimates, not another player's live pause/seek state. |
+| Black/no screen image | This is expected in Lyrics mode. In Screen mode check system broadcast state and permitted content; protected content is not bypassed. |
+| Old/blank content | Freshness/disconnect rules intentionally hide old content. A heartbeat does not prove browser/vehicle receipt. |
+| Network/audio route changed | The session may stop. Inspect the intended trusted network and playback/input route, then explicitly restart. |
+| Screen stop waits | Check/end capture with iOS recording controls. UI-only recovery is not confirmed termination. |
+| Installation expired | Personal Team provisioning is time-limited. See [signing](INSTALL.md); do not buy anything merely to troubleshoot. |
 
-## Diagnostics and data choices
+## Data choices and future reports
 
-Freshness, session matching, expired codes and stop confirmation are handled internally. The interface shows only connection status and short actions when help is needed, not ports, frame counters, heartbeats or diagnostic exports. Nothing is automatically uploaded. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers.
+No diagnostic exports or automatic diagnostic uploads are provided. Consented Shazam/LRCLIB processing is different: signatures go to Apple/Shazam and title/artist to LRCLIB, not raw audio or screens. No audio recording files or receiver audio stream are created. Read the [privacy draft](PRIVACY.md) for retention and provider boundaries.
 
-A future report can include app/build version from 设置 → 关于 Cabin, iOS/browser version and non-sensitive reproduction steps. Do not claim phone/vehicle success from simulator or compile results.
-
-End sharing and confirm cleanup, or use system recording controls. Close/unpair the receiver. Normal stop does not erase preferences. iOS controls app removal, permission and clipboard expiry; the app cannot delete receiver copies. Read the [privacy draft](PRIVACY.md) for retention/interruption limits.
+A future report can include app/build version from 设置 → 关于 Cabin, iOS/browser version and non-sensitive reproduction steps. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers. Do not claim phone/vehicle success from a simulator or compile.
 
 ## Publisher action before submission
 
-Supply an authorized public identity, monitored contact method and final policy/support URLs, and verify access. This page alone does not satisfy the contact requirement. No private email has been substituted.
+Supply an authorized public identity, monitored contact, final policy/support URLs and verify access. No private email is substituted. Verify final privacy labels, lyric rights and the exact signed app's behavior; this page alone does not satisfy those gates.

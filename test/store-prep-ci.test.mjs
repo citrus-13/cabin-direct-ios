@@ -142,7 +142,7 @@ function simulateStager(options = {}) {
     personal_signing: false, distribution_signing: false,
     simulator: { model: 'iPhone 17 Pro Max', runtime: 'com.apple.CoreSimulator.SimRuntime.iOS-27-0', os_version: '27.0' },
     phases: [{ name: 'simulator-ui-tests', passed: true, exit_code: 0, timed_out: false }],
-    tests: { tests: 3, passed: 3, failed: 0, skipped: 0, expected_failures: 0, ...options.tests },
+    tests: { tests: 4, passed: 4, failed: 0, skipped: 0, expected_failures: 0, ...options.tests },
     screenshots, ...options.report };
   options.mutateScreenshots?.(report.screenshots);
   putJSON(out + '/simulator-report.json', report);
@@ -254,7 +254,7 @@ test('[SIMULATED] clean actual-evidence-shaped inputs produce exactly three asse
   const result = simulateStager();
   assert.ifError(result.error);
   assert.equal(result.state, 'draft');
-  assert.equal(result.decodedPNGs.length, 8);
+  assert.equal(result.decodedPNGs.length, 9);
   const ghWrites = writes(result);
   assert.equal(ghWrites.length, 2, 'Only create ref and create draft; never publish/edit');
   const create = ghWrites.find(({ args }) => args[0] === 'release');
@@ -301,7 +301,7 @@ test('[SIMULATED] real Release/privacy build and source tests are mandatory, not
   }
 });
 
-test('[SIMULATED] actual Simulator report requires exactly three passing UI tests and eight hashed PNGs', () => {
+test('[SIMULATED] actual Simulator report requires exactly four passing UI tests and nine hashed PNGs', () => {
   for (const report of [{ evidence_kind: 'simulated' }, { source_commit: 'b'.repeat(40) }, { configuration: 'Debug' },
     { passed: false }, { workflow_url: 'https://example.invalid/run' }, { owned_simulator_deleted: false },
     { simulator_only: false }, { physical_iphone_test: true }, { vehicle_test: true }, { capture_test: true },

@@ -100,6 +100,10 @@ targets:
       - AppAssets.xcassets
       - Shared/SessionConfiguration.swift
       - Shared/DirectConfiguration.swift
+      - Shared/DirectLyrics.swift
+      - Shared/DirectMusicClock.swift
+      - StandaloneBroadcast/DirectMusicRuntime.swift
+      - StandaloneBroadcast/DirectMusicRecognizer.swift
       - path: ../LICENSE
         buildPhase: resources
       - path: ../NOTICE
@@ -121,7 +125,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: Share your screen or original demo with a browser you pair on your trusted local network. Screen content is not sent to a developer server.
+        NSLocalNetworkUsageDescription: Share lyrics or your screen only with browsers you pair on your trusted local network.
+        NSMicrophoneUsageDescription: Listen to music playing around your phone to recognize songs and show lyrics. No screen sharing or saved recordings. Stop lyrics to turn off the microphone.
+        UIBackgroundModes: [audio]
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
         TCBroadcastExtensionIdentifier: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
         UISupportedInterfaceOrientations:
@@ -137,7 +143,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX)
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.5.3"
+        MARKETING_VERSION: "0.6.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: DirectBroadcastExtension
@@ -184,7 +190,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.5.3"
+        MARKETING_VERSION: "0.6.0"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS:
