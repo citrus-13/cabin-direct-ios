@@ -175,6 +175,40 @@ run("IPv6 literal discovery and browser URL formatting") {
     check(urls.count == 2, "Discovery URLs are bounded to valid, unique literals")
 }
 
+run("Automatic local networks use only observed hotspot Wi-Fi and shared-hotspot addresses") {
+    let hotspot = DirectInterfaceAddress(interface: "bridge101", address: "172.20.10.1")
+    let wifi = DirectInterfaceAddress(interface: "en1", address: "192.168.5.24")
+    let sharedHotspot = DirectInterfaceAddress(interface: "en0", address: "192.168.43.12")
+    let ipv6 = DirectInterfaceAddress(interface: "en1", address: "fd12:3456::10")
+    for input in [[hotspot], [wifi], [sharedHotspot], [ipv6], [wifi, hotspot, ipv6]] {
+        let result = DirectNetworkAddresses.prioritized(input)
+        check(Set(result) == Set(input), "Only observed candidates survive, no guessed gateway")
+        check(result == DirectNetworkAddresses.prioritized(Array(input.reversed())), "Enumeration order does not affect choice")
+        check(!DirectNetworkAddresses.urls(addresses: result.map(\.address), port: 8787).isEmpty, "Each supported fixture yields actual literal URLs")
+    }
+    let preferred = DirectNetworkAddresses.prioritized([wifi, ipv6, hotspot])
+    check(preferred.first == hotspot, "Observed hotspot bridge IPv4 is a first candidate, not proof of reachability")
+    let urls = DirectNetworkAddresses.urls(addresses: preferred.map(\.address) + [hotspot.address], port: 8787)
+    check(urls == ["http://172.20.10.1:8787", "http://192.168.5.24:8787", "http://[fd12:3456::10]:8787"], "Stable unique IPv4 first with IPv6 fallback")
+    check(DirectNetworkAddresses.prioritized([]).isEmpty, "No fabricated hotspot address when no interface exists")
+    check(DirectNetworkAddresses.urls(addresses: [hotspot.address], port: 0).isEmpty, "No advertised URL before listener readiness")
+}
+
+run("Automatic discovery excludes tunnels and peer links while keeping complete bounded snapshots") {
+    for name in ["utun2", "tun0", "tap1", "ipsec0", "ppp0", "pdp_ip0", "lo0", "awdl0", "llw0", "gif0", "stf0", ""] {
+        check(!DirectNetworkAddresses.usableInterface(name), "Non-local receiver interface excluded")
+        check(DirectNetworkAddresses.prioritized([.init(interface: name, address: "10.1.2.3")]).isEmpty, "Private address alone does not make a tunnel usable")
+    }
+    let pairs = [DirectInterfaceAddress(interface: "en0", address: "192.168.5.1"), .init(interface: "bridge103", address: "192.168.5.1")]
+    let snapshot = DirectNetworkAddresses.prioritized(pairs + pairs)
+    check(snapshot.count == 2, "Interface identity retained even with equal literals")
+    check(DirectNetworkAddresses.urls(addresses: snapshot.map(\.address), port: 8787).count == 1, "Displayed URL is deduplicated independently")
+    check(!DirectNetworkAddresses.matches(initial: snapshot, current: [pairs[0]]), "Interface disappearance cannot be hidden by URL deduplication")
+    check(DirectNetworkAddresses.prioritized([.init(interface: "en0", address: "8.8.8.8")]).isEmpty, "No public IPv4 advertisement")
+    let excessive = (1...17).map { DirectInterfaceAddress(interface: "en0", address: "192.168.5.\($0)") }
+    check(DirectNetworkAddresses.prioritized(excessive).isEmpty, "Too many candidates fail closed rather than truncate transition snapshot")
+}
+
 run("Network transitions require a new user session instead of stale IPv6 advertisements") {
     let first = DirectInterfaceAddress(interface: "en0", address: "2001:db8::1")
     let second = DirectInterfaceAddress(interface: "en0", address: "2001:db8::2")

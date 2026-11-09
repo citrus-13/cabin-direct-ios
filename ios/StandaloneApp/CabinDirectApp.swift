@@ -182,8 +182,9 @@ struct DirectSetupView: View {
                     Text("手机画面，直接上大屏")
                         .font(.title2.bold()).accessibilityAddTraits(.isHeader)
                         .accessibilityIdentifier("share.headline")
-                    Text("手机和车机连接同一网络，停车后使用。")
+                    Text("车机连接这台手机的热点，或与手机连接同一 Wi-Fi。停车后使用。")
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("share.network-guidance")
                     Label(statusTitle, systemImage: statusSymbol)
                         .foregroundStyle(currentStatus == nil ? Color.secondary : Color.teal)
                         .accessibilityIdentifier("session.status")
@@ -215,9 +216,19 @@ struct DirectSetupView: View {
                 if let actionNotice { Text(actionNotice).font(.footnote).foregroundStyle(.secondary) }
             }
             if currentStatus != nil { connectionSection }
+            Section {
+                DisclosureGroup("如何连接") {
+                    Text("手机开热点：先让车机连接这台 iPhone 的个人热点，再开始投屏。")
+                    Text("家里 Wi-Fi 或另一台设备的热点：手机和车机连接同一个网络，再开始投屏。")
+                    Text("连接地址自动整理，无需手选模式。网络切换后重新开始投屏；不需要 Mac 中转。")
+                    Text("若车机打不开地址，可尝试其他地址，并确认允许 Cabin 访问本地网络。访客网络可能不允许设备互连。")
+                }
+                .font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("network.connection-help")
+            }
             if model.status?.state == "error" {
                 Section {
-                    Text("投屏已中断。请检查网络和系统录屏状态后重试。")
+                    Text("投屏已中断。确认车机仍连接热点或同一 Wi-Fi，然后重新开始投屏。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -227,6 +238,10 @@ struct DirectSetupView: View {
 
     private func prepareBroadcast() {
         guard !settingsLocked else { return }
+        guard !DirectNetworkAddresses.current().isEmpty else {
+            actionNotice = "暂未找到可用连接地址。请确认车机已连接这台手机的热点，或手机与车机已连接同一 Wi-Fi，再重试。"
+            return
+        }
         model.save()
         guard model.saved else {
             actionNotice = model.settings.musicMode == .manual
@@ -364,13 +379,16 @@ struct DirectSetupView: View {
                     Text(status.port == 0 ? "正在准备连接地址…" : "请连接 Wi-Fi 或热点，并允许本地网络访问。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                ForEach(receiverURLs, id: \.self) { address in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
-                        Button { copy(address, label: "地址已复制") } label: {
-                            Label("复制地址", systemImage: "doc.on.doc")
-                        }.font(.footnote).accessibilityIdentifier("action.receiver.copy-address")
+                if let address = receiverURLs.first {
+                    receiverAddressRow(address, identifier: "action.receiver.copy-address")
+                }
+                if receiverURLs.count > 1 {
+                    DisclosureGroup("打不开？试试其他地址") {
+                        ForEach(Array(receiverURLs.dropFirst().enumerated()), id: \.offset) { entry in
+                            receiverAddressRow(entry.element, identifier: "action.receiver.copy-alternative-\(entry.offset)")
+                        }
                     }
+                    .accessibilityIdentifier("network.alternative-addresses")
                 }
                 if pairRemaining > 0, let session = model.session {
                     Text(session.pairingCode)
@@ -386,6 +404,15 @@ struct DirectSetupView: View {
                 }
             }
             if !copied.isEmpty { Text(copied).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func receiverAddressRow(_ address: String, identifier: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(address).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+            Button { copy(address, label: "地址已复制") } label: {
+                Label("复制地址", systemImage: "doc.on.doc")
+            }.font(.footnote).accessibilityIdentifier(identifier)
         }
     }
 

@@ -270,10 +270,42 @@ enum DirectNetworkAddresses {
     }
 
     static func urls(addresses: [String], port: UInt16) -> [String] {
-        Array(Set(addresses.compactMap { url(address: $0, port: port) })).sorted()
+        // Preserve observed interface preference within each address family.
+        // No literal is invented and priority is not a reachability assertion.
+        var seen = Set<String>()
+        let unique = addresses.filter { seen.insert($0).inserted && url(address: $0, port: port) != nil }
+        return (unique.filter(privateIPv4) + unique.filter(localIPv6)).compactMap { url(address: $0, port: port) }
     }
 
     static func urls(port: UInt16) -> [String] { urls(addresses: current().map(\.address), port: port) }
+
+    static func usableInterface(_ name: String) -> Bool {
+        guard !name.isEmpty else { return false }
+        // Exclude tunnels, cellular, loopback and Apple peer-to-peer links.
+        // Infrastructure/hotspot interface names are not fixed to en0/bridge100.
+        return !["utun", "tun", "tap", "ipsec", "ppp", "pdp_ip", "lo", "awdl", "llw", "gif", "stf"]
+            .contains(where: { name.lowercased().hasPrefix($0) })
+    }
+
+    static func prioritized(_ candidates: [DirectInterfaceAddress]) -> [DirectInterfaceAddress] {
+        func interfacePriority(_ name: String) -> Int {
+            if name.hasPrefix("bridge") || name.hasPrefix("ap") { return 0 }
+            if name.hasPrefix("en") || name.hasPrefix("eth") || name.hasPrefix("wlan") { return 1 }
+            return 2
+        }
+        // Keep all eligible interface/address pairs for transition checks, even
+        // when two interfaces advertise the same literal. Only URLs deduplicate.
+        let eligible = Array(Set(candidates.filter {
+            usableInterface($0.interface) && (privateIPv4($0.address) || localIPv6($0.address))
+        }))
+        // Do not truncate a snapshot and accidentally miss a network transition.
+        guard eligible.count <= 16 else { return [] }
+        return eligible.sorted {
+            let left = (privateIPv4($0.address) ? 0 : 1, interfacePriority($0.interface), $0.interface, $0.address)
+            let right = (privateIPv4($1.address) ? 0 : 1, interfacePriority($1.interface), $1.interface, $1.address)
+            return left < right
+        }
+    }
 
     static func current() -> [DirectInterfaceAddress] {
         #if canImport(Darwin)
@@ -289,16 +321,16 @@ enum DirectNetworkAddresses {
                   [UInt8(AF_INET), UInt8(AF_INET6)].contains(address.pointee.sa_family),
                   item.pointee.ifa_flags & UInt32(IFF_UP) != 0,
                   item.pointee.ifa_flags & UInt32(IFF_LOOPBACK) == 0,
-                  !name.hasPrefix("utun"), !name.hasPrefix("pdp_ip"), !name.hasPrefix("lo") else { continue }
+                  usableInterface(name) else { continue }
             var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
             guard getnameinfo(address, socklen_t(address.pointee.sa_len), &host, socklen_t(host.count),
                               nil, 0, NI_NUMERICHOST) == 0 else { continue }
             let value = String(cString: host)
-            if (privateIPv4(value) || localIPv6(value)), !result.contains(where: { $0.address == value }), result.count < 16 {
+            if privateIPv4(value) || localIPv6(value) {
                 result.append(.init(interface: name, address: value))
             }
         }
-        return result.sorted { $0.interface < $1.interface }
+        return prioritized(result)
         #else
         return []
         #endif

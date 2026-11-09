@@ -55,7 +55,7 @@ private final class DirectBroadcastRuntime {
     init(session: DirectBroadcastSession, onFailure: @escaping (Error) -> Void) throws {
         self.session = session; self.onFailure = onFailure
         networkAddresses = DirectNetworkAddresses.current()
-        guard !networkAddresses.isEmpty else { throw DemoError.message("没有可用的局域网地址。先连接自己的 Wi-Fi 或热点，再启动广播。") }
+        guard !networkAddresses.isEmpty else { throw DemoError.message("请先让车机连接这台手机的热点，或让手机和车机连接同一 Wi-Fi，再开始投屏。") }
         queue.setSpecific(key: queueKey, value: 1)
         var assets: [String: LocalHTTPAsset] = [:]
         for (file, route, type) in [("index.html", "/", "text/html; charset=utf-8"),

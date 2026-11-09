@@ -33,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.5.1（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.5.2（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -124,6 +124,8 @@ final class CabinDirectUITests: XCTestCase {
         let selected = share.exists ? share : app.tabBars.buttons["投屏"]
         XCTAssertTrue(selected.isSelected, "Projection must be the default tab")
         XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
+        XCTAssertTrue(element("share.network-guidance", in: app).exists)
+        XCTAssertTrue(element("share.network-guidance", in: app).label.contains("这台手机的热点"))
         assertNoDiagnostics(in: app)
         for phrase in ["开发验证版", "实机验收", "测试报告", "DEMO", "原创演示"] {
             XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists,

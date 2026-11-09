@@ -92,6 +92,22 @@ test('original application icon is opaque RGB at 1024 square', () => {
   assert.equal(image[25], 2, 'App Store icon must not carry alpha');
 });
 
+test('universal local mode is automatic and keeps runtime safety gates off the main UI', () => {
+  const app = source('ios/StandaloneApp/CabinDirectApp.swift');
+  const shared = source('ios/Shared/DirectConfiguration.swift');
+  const runtime = source('ios/StandaloneBroadcast/DirectSampleHandler.swift');
+  assert.match(app, /车机连接这台手机的热点，或与手机连接同一 Wi-Fi/);
+  assert.match(app, /guard !DirectNetworkAddresses\.current\(\)\.isEmpty else/);
+  assert.match(app, /if let address = receiverURLs\.first/);
+  assert.match(app, /DisclosureGroup\("打不开？试试其他地址"\)/);
+  assert.match(app, /receiverURLs\.dropFirst\(\)/);
+  assert.doesNotMatch(app, /172\.20\.10\.1|NWBrowser|networkMode|Text\(model\.message\)/);
+  assert.match(shared, /return prioritized\(result\)/);
+  assert.match(shared, /guard eligible\.count <= 16 else \{ return \[\] \}/);
+  assert.match(runtime, /DirectNetworkAddresses\.matches\(initial: networkAddresses, current: DirectNetworkAddresses\.current\(\)\)/);
+  assert.match(runtime, /addresses: listenerReady \? networkAddresses\.map/);
+});
+
 test('V1 shared native contracts execute without iOS runtime or network access', t => {
   const compiler = spawnSync('swiftc', ['--version'], { encoding: 'utf8' });
   if (compiler.error?.code === 'ENOENT') return t.skip('Swift not installed; no device/build evidence inferred');
@@ -104,7 +120,7 @@ test('V1 shared native contracts execute without iOS runtime or network access',
   assert.equal(build.status, 0, build.stderr || build.error?.message);
   const run = spawnSync(executable, [], { encoding: 'utf8', timeout: 15_000 });
   assert.equal(run.status, 0, run.stderr || run.stdout);
-  assert.match(run.stdout, /Shared native macOS acceptance: 15 cases, 0 failures/);
+  assert.match(run.stdout, /Shared native macOS acceptance: 17 cases, 0 failures/);
 });
 
 test('shared session cleanup is serialized and cannot delete or overwrite a newer session', t => {
