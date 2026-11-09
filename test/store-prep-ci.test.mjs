@@ -254,7 +254,7 @@ test('[SIMULATED] clean actual-evidence-shaped inputs produce exactly three asse
   const result = simulateStager();
   assert.ifError(result.error);
   assert.equal(result.state, 'draft');
-  assert.equal(result.decodedPNGs.length, 9);
+  assert.equal(result.decodedPNGs.length, SCREENSHOT_NAMES.length);
   const ghWrites = writes(result);
   assert.equal(ghWrites.length, 2, 'Only create ref and create draft; never publish/edit');
   const create = ghWrites.find(({ args }) => args[0] === 'release');
