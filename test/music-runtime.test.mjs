@@ -35,7 +35,9 @@ test('only ReplayKit audioApp enters music; microphone and nonvideo samples are 
   assert.match(admission, /guard sampleBufferType == \.video else \{ return \}/);
   assert.doesNotMatch(admission, /if[^\n]*\.audioMic|case \.audioMic/);
   assert.match(app, /view\.showsMicrophoneButton = false/);
-  assert.match(handler, /running && !paused \? music : nil/);
+  assert.match(handler, /running && !paused \? \(music, media\) : \(nil, nil\)/);
+  assert.match(handler, /values\.0\?\.append\(sample\)/);
+  assert.match(handler, /values\.1\?\.appendAudio\(sample\)/);
   assert.match(runtime, /active && !paused \? recognizer : nil/);
   assert.doesNotMatch(handler + runtime + app, /requestRecordPermission|AVAudioSession|AVAudioEngine|startCapture\(|startRecording\(/);
 });

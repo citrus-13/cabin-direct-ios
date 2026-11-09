@@ -33,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.6.0（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.7.0（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -148,6 +148,9 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
         XCTAssertTrue(element("share.network-guidance", in: app).exists)
         XCTAssertTrue(element("share.network-guidance", in: app).label.contains("这台手机的热点"))
+        let fixedEntry = element("network.fixed-entry.value", in: app)
+        reveal(fixedEntry, identifier: "network.fixed-entry.value", in: app, requiresHittable: false)
+        XCTAssertEqual(fixedEntry.label, "https://citrus-13.github.io/cabin-direct-ios/")
         let addressStatus = element("network.address-status", in: app)
         reveal(addressStatus, identifier: "network.address-status", in: app, requiresHittable: false)
         XCTAssertEqual(addressStatus.label, "尚未开始投屏")

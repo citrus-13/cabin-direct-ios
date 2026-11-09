@@ -1,4 +1,4 @@
-# Music and lyrics — 0.6.0 development source, device acceptance pending
+# Music and lyrics — independent lyrics retained in 0.7.0, device acceptance pending
 
 Current source separates **歌词** (independent acoustic recognition) from **投屏** (ReplayKit). These modes are mutually exclusive and neither starts automatically. Selecting Lyrics does not request microphone permission or open a server; the user must explicitly start and accept the per-session notice. Settings remain a secondary page, not a diagnostics dashboard.
 
@@ -18,7 +18,7 @@ That historical result does not validate 0.6.0 microphone capture, its backgroun
 
 Independent Lyrics intentionally includes recognition and lyric retrieval in its visible per-session consent; it does not turn on or overwrite the saved screen-mode settings. The phone sends no music credentials, screen image or raw audio to LRCLIB. A client-identification header names Cabin and its public project. Both providers receive ordinary connection metadata such as IP address; consented recognition/lookup is not a wholly offline workflow.
 
-The paired browser gets bounded current metadata/lyric lines, never an audio stream. In independent Lyrics it gets no image frames or OCR at all. Local HTTP is unencrypted: use a trusted network and do not expose the listener publicly. Stop clears current runtime work; stale, paused or disconnected states hide old results. A receiver may independently copy displayed content, and Cabin cannot revoke copies or promise forensic memory erasure.
+The independent-lyrics browser gets bounded current metadata/lyric lines, never an audio stream. The separate 0.7.0 screen mode may relay system-permitted application audio as AAC with video; this does not turn acoustic lyrics into a broadcast. In independent Lyrics it gets no image frames or OCR at all. Local HTTP is unencrypted: use a trusted network and do not expose the listener publicly. Stop clears current runtime work; stale, paused or disconnected states hide old results. A receiver may independently copy displayed content, and Cabin cannot revoke copies or promise forensic memory erasure.
 
 Audio buffers are transient recognition input, not stored recordings. Lyrics are retained for the current track in memory, not a disk cache or downloaded library. Manual title/artist/offset and saved screen consent choices may persist as settings, unlike fetched lyric text. Acoustic session credentials stay in host memory, separate from ReplayKit's App Group session.
 

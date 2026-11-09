@@ -43,6 +43,7 @@ private final class DirectBroadcastRuntime {
     private let onFailure: (Error) -> Void
     private let networkAddresses: [DirectInterfaceAddress]
     private var capture: CapturePipeline?
+    private var media: DirectMediaPipeline?
     private var music: DirectMusicRuntime?
     private var timer: DispatchSourceTimer?
     private var state = LocalPublicState()
@@ -91,7 +92,19 @@ private final class DirectBroadcastRuntime {
                 }
                 self.music?.start()
             }
-            self.capture = CapturePipeline(maxLongEdge: 960, maxShortEdge: 540, maxFPS: 8,
+            // Encoders own bounded admission; callbacks publish directly to the bounded
+            // server. Never block the codec queue on this runtime's lifecycle queue.
+            self.media = DirectMediaPipeline(maxLongEdge: 960, maxShortEdge: 540, maxFPS: 24,
+                onInitialization: { [weak self] value in
+                    self?.server.updateMediaInitialization(.init(generation: value.generation,
+                        data: value.data, mime: value.mime, hasAudio: value.hasAudio))
+                }, onFragment: { [weak self] value in
+                    self?.server.updateMediaFragment(.init(generation: value.generation,
+                        sequence: value.sequence, data: value.data, start: value.start,
+                        duration: value.duration, independent: value.independent, updatedAt: value.updatedAt))
+                }, onUnavailable: { [weak self] _ in self?.server.clearMedia() })
+            // Low-rate JPEG remains an honest picture-only compatibility path and OCR source.
+            self.capture = CapturePipeline(maxLongEdge: 960, maxShortEdge: 540, maxFPS: 4,
                 ocrEnabled: settings.lyricMode == .visibleText,
                 region: .init(x: settings.regionX, y: settings.regionY, width: settings.regionWidth, height: settings.regionHeight),
                 onFrame: { [weak self] frame in self?.receive(frame) },
@@ -113,13 +126,19 @@ private final class DirectBroadcastRuntime {
 
     func append(_ sample: CMSampleBuffer, orientation: CGImagePropertyOrientation) {
         // Do not queue sample buffers here: CapturePipeline owns single-frame admission.
-        let value: CapturePipeline? = queue.sync { running && !paused ? capture : nil }
-        value?.append(sample, orientation: orientation)
+        let values: (CapturePipeline?, DirectMediaPipeline?) = queue.sync {
+            running && !paused ? (capture, media) : (nil, nil)
+        }
+        values.0?.append(sample, orientation: orientation)
+        values.1?.appendVideo(sample, orientation: orientation)
     }
 
     func appendAudio(_ sample: CMSampleBuffer) {
-        let value = queue.sync { running && !paused ? music : nil }
-        value?.append(sample)
+        let values: (DirectMusicRuntime?, DirectMediaPipeline?) = queue.sync {
+            running && !paused ? (music, media) : (nil, nil)
+        }
+        values.0?.append(sample)
+        values.1?.appendAudio(sample)
     }
 
     private func receive(_ frame: CapturedJPEG) {
@@ -151,6 +170,8 @@ private final class DirectBroadcastRuntime {
             self.paused = value
             self.observations.advance(to: Date().timeIntervalSince1970)
             self.capture?.setPaused(value)
+            self.media?.setPaused(value)
+            self.server.clearMedia()
             self.music?.setPaused(value)
             self.state.music = nil
             self.state.captureState = value ? "paused" : "waiting"
@@ -176,6 +197,7 @@ private final class DirectBroadcastRuntime {
             return
         }
         music?.tick()
+        media?.tick()
         publish()
     }
 
@@ -207,6 +229,7 @@ private final class DirectBroadcastRuntime {
         running = false; listenerReady = false
         timer?.cancel(); timer = nil
         capture?.stop(); capture = nil
+        media?.stop(); media = nil; server.clearMedia()
         music?.stop(); music = nil; state.music = nil
         let sessionID = session.id, frames = state.sequence
         server.updateFrame(nil)

@@ -6,7 +6,7 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [.library(name: "DirectCapture", targets: ["DirectCapture"])],
     targets: [
-        .target(name: "DirectCapture", path: ".", exclude: ["Tests"], sources: ["CapturePipeline.swift"]),
+        .target(name: "DirectCapture", path: ".", exclude: ["Tests"], sources: ["CapturePipeline.swift", "DirectMediaPipeline.swift", "FragmentedMP4.swift"]),
         .testTarget(name: "DirectCaptureTests", dependencies: ["DirectCapture"], path: "Tests")
     ]
 )

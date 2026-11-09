@@ -1,6 +1,6 @@
 # Cabin Direct — help and support preparation
 
-This is self-help for 0.6.0 development source, not a staffed support service or finalized App Store Support URL. Publisher name/contact remain unconfirmed; no private-report channel or response time is promised. Do not post personal information. Earlier preview downloads do not acquire the independent acoustic mode through these instructions; verify the actual app/build first.
+This is self-help for 0.7.0 development source, not a staffed support service or finalized App Store Support URL. Publisher name/contact remain unconfirmed; no private-report channel or response time is promised. Do not post personal information. Earlier preview downloads do not acquire the independent acoustic mode through these instructions; verify the actual app/build first.
 
 ## Choose a mode
 
@@ -13,6 +13,8 @@ The two modes are mutually exclusive. **设置** holds screen music, lyric and O
 ## Connect safely
 
 Use a trusted Wi-Fi/hotspot. For this iPhone's Personal Hotspot, connect the receiver first; for another hotspot/Wi-Fi, connect both devices. Mutual reachability is necessary: the same network name alone proves nothing. Guest isolation, VPN routing and browser policy can block access. Cabin does not change your VPN, invent hotspot addresses, scan networks, open public ports or use a developer relay.
+
+The fixed entry `https://citrus-13.github.io/cabin-direct-ios/` remembers an address only after you confirm it. Next time it can navigate automatically; cancel or use `?setup=1` to edit, and Forget to clear the saved address. It does not discover a changed IP, bypass pairing or carry media. A public-page load needs internet access; use the phone address directly when offline.
 
 An observed local address may be previewed/bookmarked while the mode is stopped, but is marked inactive; no page is served until a session starts. No eligible interface means guidance instead of a guessed/old address. After starting, use the current address and separate six-digit pairing code within 120 seconds; five wrong attempts are allowed. Codes are not embedded in URLs. Check a bookmark still matches the current address.
 
@@ -44,7 +46,7 @@ Stop Screen Sharing waits for matching-extension cleanup; iOS recording controls
 
 ## Data choices and future reports
 
-No diagnostic exports or automatic diagnostic uploads are provided. Consented Shazam/LRCLIB processing is different: signatures go to Apple/Shazam and title/artist to LRCLIB, not raw audio or screens. No audio recording files or receiver audio stream are created. Read the [privacy draft](PRIVACY.md) for retention and provider boundaries.
+No diagnostic exports or automatic diagnostic uploads are provided. Consented Shazam/LRCLIB processing is different: signatures go to Apple/Shazam and title/artist to LRCLIB, not raw audio or screens. No audio recording files are created. Acoustic lyrics never relays audio. Screen mode uses a shared H.264/AAC timeline with an explicit receiver sound button; unsupported browsers retain picture-only JPEG. Do not enable both receiver audio and another audible output if that produces echo. Read the [privacy draft](PRIVACY.md) for retention and provider boundaries.
 
 A future report can include app/build version from 设置 → 关于 Cabin, iOS/browser version and non-sensitive reproduction steps. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers. Do not claim phone/vehicle success from a simulator or compile.
 

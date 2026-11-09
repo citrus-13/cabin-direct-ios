@@ -2,15 +2,19 @@
   'use strict';
   const $ = id => document.getElementById(id);
   const screen = $('screen');
+  const video = $('video');
   let paired = false, failures = 0, streamActive = false, snapshotMode = false;
   let objectURL = null, pollTimer = null, lastLiveAt = 0, snapshotBusy = null, generation = 0, streamWatchdog = null;
   let enabled = true, epoch = 0, pollBusy = null, loggingOut = false;
   let musicFreshness = null, lyricsOnly = false;
+  let media = null, failedMedia = '', mediaRetryAt = Infinity, mediaRetryCount = 0, soundConsent = false;
+  const mediaRequests = new Set();
   const pending = new Set();
   try { enabled = sessionStorage.getItem('cabin-disconnected') !== '1'; } catch (_) {}
   const current = version => enabled && epoch === version;
   function status(text, live = false) { $('status').textContent = text; $('statusDot').classList.toggle('live', live); }
   function clearImage(title = '等待手机画面', message = '请保持广播或演示运行。暂停或断开后，画面会自动隐藏。') {
+    stopMedia();
     generation++; clearTimeout(streamWatchdog); screen.hidden = true; screen.removeAttribute('src'); streamActive = false;
     if (objectURL) { URL.revokeObjectURL(objectURL); objectURL = null; }
     $('empty').hidden = false; $('emptyTitle').textContent = title; $('emptyMessage').textContent = message;
@@ -53,14 +57,42 @@
     $('musicMessage').textContent = music.status === 'unavailable' ? (lyricsOnly ? '请在 iPhone 检查麦克风权限和网络连接。' : '请在 iPhone 检查识曲设置，或手动选曲。') :
       music.status === 'waiting' ? (lyricsOnly ? '请让 iPhone 听到车内音响或扬声器播放的音乐。' : '请在手机播放音乐，并开启识曲。') : music.status === 'recognizing' ? '请保持音乐播放。' : '';
   }
-  async function request(path, options = {}) {
+  async function request(path, options = {}, kind = 'none', maxBytes = 65536) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 2500);
     pending.add(controller);
-    try { return await fetch(path, {cache: 'no-store', credentials: 'same-origin', ...options, signal: controller.signal}); }
-    finally { clearTimeout(timeout); pending.delete(controller); }
+    if (path.startsWith('/media/')) mediaRequests.add(controller);
+    const aborted = new Promise((_, reject) => controller.signal.addEventListener('abort', () => reject(Object.assign(new Error('timeout or cancelled'), {name: 'AbortError'})), {once: true}));
+    try {
+      return await Promise.race([aborted, (async () => {
+        const response = await fetch(path, {cache: 'no-store', credentials: 'same-origin', ...options, signal: controller.signal});
+        const chunks = []; let size = 0;
+        if (response.body) {
+          const reader = response.body.getReader();
+          try {
+            for (;;) {
+              const item = await Promise.race([reader.read(), aborted]);
+              if (item.done) break;
+              size += item.value.byteLength;
+              if (size > maxBytes) { controller.abort(); throw new Error('response too large'); }
+              chunks.push(item.value);
+            }
+          } finally {
+            if (controller.signal.aborted) void reader.cancel().catch(() => {});
+            try { reader.releaseLock(); } catch (_) {}
+          }
+        }
+        const bytes = new Uint8Array(size); let offset = 0;
+        for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+        let data = bytes;
+        if (response.ok && response.status !== 204 && kind === 'json') data = JSON.parse(new TextDecoder().decode(bytes));
+        else if (kind === 'blob') data = new Blob([bytes], {type: 'image/jpeg'});
+        return {ok: response.ok, status: response.status, data};
+      })()]);
+    } finally { clearTimeout(timeout); pending.delete(controller); mediaRequests.delete(controller); }
   }
   function showPaired() { paired = true; failures = 0; $('pairPanel').hidden = true; $('viewer').hidden = false; }
   function halt() {
+    soundConsent = false; failedMedia = ''; mediaRetryCount = 0; mediaRetryAt = Infinity;
     enabled = false; paired = false; epoch++; clearTimeout(pollTimer);
     for (const controller of pending) controller.abort();
     pollBusy = null; snapshotBusy = null; lastLiveAt = 0;
@@ -88,12 +120,12 @@
     const ticket = {}; snapshotBusy = ticket;
     const version = generation, session = epoch;
     try {
-      const response = await request('/frame.jpg');
+      const response = await request('/frame.jpg', {}, 'blob', 1048576);
       if (!current(session) || !paired || lyricsOnly || generation !== version) return;
       if (response.status === 401 || response.status === 410) { lostPairing(); return; }
       if (response.status === 204) { clearImage(); return; }
       if (!response.ok) throw new Error('snapshot');
-      const blob = await response.blob();
+      const blob = response.data;
       if (!current(session) || generation !== version || !paired || lyricsOnly) return;
       if (objectURL) URL.revokeObjectURL(objectURL);
       objectURL = URL.createObjectURL(blob); screen.src = objectURL; screen.hidden = false; $('empty').hidden = true;
@@ -101,6 +133,203 @@
     } catch (_) { if (current(session) && generation === version) clearImage('连接暂时中断', '正在等待新画面，不显示旧内容。'); }
     finally { if (snapshotBusy === ticket) snapshotBusy = null; }
   }
+  function validMedia(value) {
+    const time = Date.now() / 1000;
+    return value && typeof value.generation === 'string' && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value.generation) &&
+      typeof value.hasAudio === 'boolean' && typeof value.mime === 'string' &&
+      (value.hasAudio ? /^video\/mp4; codecs="avc1\.[a-f0-9]{6}, ?mp4a\.40\.2"$/i : /^video\/mp4; codecs="avc1\.[a-f0-9]{6}"$/i).test(value.mime) &&
+      Number.isFinite(value.updatedAt) && value.updatedAt > 0 && value.updatedAt <= time + 1 && time - value.updatedAt <= 4;
+  }
+  function activeMedia(player) { return media === player && current(player.epoch) && paired && !lyricsOnly && !document.hidden; }
+  function stopMedia() {
+    const old = media; media = null;
+    for (const controller of mediaRequests) controller.abort();
+    if (old) {
+      clearTimeout(old.timer); clearTimeout(old.openTimer);
+      try { old.buffer?.abort(); } catch (_) {}
+      try { video.pause(); } catch (_) {}
+      video.removeAttribute('src');
+      try { video.load(); } catch (_) {}
+      URL.revokeObjectURL(old.url);
+    }
+    video.hidden = true; video.muted = true;
+    $('soundButton').hidden = true; $('mediaNote').hidden = true;
+  }
+  function mediaFallback(player, temporary = false) {
+    if (!activeMedia(player)) return;
+    failedMedia = player.generation;
+    mediaRetryAt = temporary ? Date.now() + 2000 * 2 ** mediaRetryCount : Infinity;
+    if (temporary) mediaRetryCount = Math.min(2, mediaRetryCount + 1);
+    stopMedia();
+    $('mediaNote').hidden = false; $('mediaNote').textContent = '兼容画面，无声音。声音请继续使用原播放器。';
+    displayFrame();
+  }
+  function displayVisual(descriptor) {
+    if (lyricsOnly) { stopMedia(); return; }
+    if (descriptor?.generation !== failedMedia && failedMedia) { failedMedia = ''; mediaRetryCount = 0; mediaRetryAt = Infinity; }
+    if (failedMedia === descriptor?.generation && Date.now() >= mediaRetryAt) failedMedia = '';
+    let supported = false;
+    try { supported = validMedia(descriptor) && typeof window.MediaSource === 'function' && window.MediaSource.isTypeSupported(descriptor.mime); } catch (_) {}
+    if (!supported || failedMedia === descriptor?.generation) {
+      stopMedia();
+      $('mediaNote').hidden = false; $('mediaNote').textContent = '兼容画面，无声音。声音请继续使用原播放器。';
+      displayFrame(); return;
+    }
+    if (media?.generation === descriptor.generation) return;
+    clearImage();
+    let source, url;
+    try { source = new window.MediaSource(); url = URL.createObjectURL(source); }
+    catch (_) {
+      failedMedia = descriptor.generation; mediaRetryAt = Infinity;
+      $('mediaNote').hidden = false; $('mediaNote').textContent = '兼容画面，无声音。声音请继续使用原播放器。';
+      displayFrame(); return;
+    }
+    const player = {generation: descriptor.generation, descriptor, epoch, source, url, buffer: null,
+      initialized: false, next: null, timer: null, openTimer: null, busy: false, firstAppend: true, soundEnabled: false,
+      hasFragments: false, playAttempted: false, playPending: false, waitingGesture: false,
+      lastProgressAt: Date.now(), lastVideoTime: 0, lastDecodedFrames: 0};
+    media = player; video.muted = !(soundConsent && descriptor.hasAudio); video.src = player.url;
+    $('soundButton').textContent = '启用声音';
+    $('mediaNote').hidden = false; $('mediaNote').textContent = '正在连接同步画面…';
+    player.openTimer = setTimeout(() => mediaFallback(player), 3500);
+    source.addEventListener('sourceopen', () => {
+      if (!activeMedia(player) || player.buffer) return;
+      clearTimeout(player.openTimer);
+      try {
+        player.buffer = source.addSourceBuffer(descriptor.mime); player.buffer.mode = 'segments';
+        player.buffer.addEventListener('error', () => mediaFallback(player));
+        void mediaStep(player);
+      } catch (_) { mediaFallback(player); }
+    });
+    source.addEventListener('sourceclose', () => mediaFallback(player));
+  }
+  async function mediaAppend(player, bytes) {
+    if (!activeMedia(player)) throw new Error('cancelled');
+    const buffer = player.buffer;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error('append timeout')); }, 2500);
+      const done = () => { cleanup(); activeMedia(player) ? resolve() : reject(new Error('cancelled')); };
+      const fail = () => { cleanup(); reject(new Error('append failed')); };
+      function cleanup() { clearTimeout(timer); buffer.removeEventListener('updateend', done); buffer.removeEventListener('error', fail); buffer.removeEventListener('abort', fail); }
+      buffer.addEventListener('updateend', done); buffer.addEventListener('error', fail); buffer.addEventListener('abort', fail);
+      try { buffer.appendBuffer(bytes); } catch (error) { cleanup(); reject(error); }
+    });
+  }
+  async function trimMedia(player) {
+    const buffer = player.buffer, ranges = video.buffered;
+    if (!ranges.length) return;
+    const end = ranges.end(ranges.length - 1), beginning = ranges.start(0);
+    if (player.firstAppend || end - video.currentTime > 1 || video.currentTime < beginning) {
+      video.currentTime = Math.max(beginning, end - 0.4); player.firstAppend = false;
+      player.lastVideoTime = video.currentTime;
+    }
+    video.playbackRate = end - video.currentTime > 0.65 ? 1.05 : 1;
+    if (video.currentTime - beginning <= 2) return;
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { cleanup(); reject(new Error('trim timeout')); }, 2500);
+      const done = () => { cleanup(); resolve(); }, fail = () => { cleanup(); reject(new Error('trim failed')); };
+      function cleanup() { clearTimeout(timer); buffer.removeEventListener('updateend', done); buffer.removeEventListener('error', fail); buffer.removeEventListener('abort', fail); }
+      buffer.addEventListener('updateend', done); buffer.addEventListener('error', fail); buffer.addEventListener('abort', fail);
+      try { buffer.remove(0, video.currentTime - 1); } catch (error) { cleanup(); reject(error); }
+    });
+  }
+  async function mediaStep(player) {
+    if (!activeMedia(player) || player.busy) return;
+    player.busy = true; let delay = 180;
+    try {
+      const response = await request('/media/index', {}, 'json', 32768);
+      if (!activeMedia(player)) return;
+      if (response.status === 401 || response.status === 410) { lostPairing(); return; }
+      if (response.status === 204) { clearImage('等待新画面'); return; }
+      if (!response.ok) throw Object.assign(new Error('media index'), {temporary: response.status === 429 || response.status >= 500});
+      const index = response.data;
+      if (!validMedia(index) || index.generation !== player.generation) { stopMedia(); return; }
+      if (index.mime !== player.descriptor.mime || index.hasAudio !== player.descriptor.hasAudio || !Array.isArray(index.fragments) || !index.fragments.length || index.fragments.length > 60) throw new Error('invalid index');
+      let prior = null;
+      for (const item of index.fragments) {
+        if (!Number.isSafeInteger(item.sequence) || item.sequence < 0 || !Number.isFinite(item.start) || item.start < 0 || item.start > 86400 ||
+            !Number.isFinite(item.duration) || item.duration <= 0 || item.duration > 2 || typeof item.independent !== 'boolean' ||
+            (prior && (item.sequence !== prior.sequence + 1 || Math.abs(item.start - prior.start - prior.duration) > 0.1))) throw new Error('invalid fragment');
+        prior = item;
+      }
+      if (!index.fragments[0].independent) throw new Error('missing random access');
+      const last = index.fragments[index.fragments.length - 1], edge = last.start + last.duration;
+      if (edge - index.fragments[0].start > 3.01) throw new Error('oversize timeline');
+      let selected = index.fragments.find(item => item.sequence === player.next);
+      if (player.next !== null && (!selected && player.next <= last.sequence || selected && edge - selected.start > 2)) {
+        stopMedia(); displayVisual(player.descriptor); return;
+      }
+      if (player.next === null) {
+        selected = [...index.fragments].reverse().find(item => item.independent && item.start <= edge - 0.4) || index.fragments.find(item => item.independent);
+        if (!selected || edge - selected.start > 2) throw new Error('no recent keyframe');
+        player.next = selected.sequence;
+      }
+      if (!selected) return;
+      const base = '/media/' + player.generation + '/';
+      if (!player.initialized) {
+        const init = await request(base + 'init.mp4', {}, 'bytes', 65536);
+        if (!activeMedia(player)) return;
+        if (init.status === 401 || init.status === 410) { lostPairing(); return; }
+        if (init.status === 409 || init.status === 204) { stopMedia(); return; }
+        if (!init.ok || init.data.byteLength < 8) throw Object.assign(new Error('media initialization'), {temporary: init.status === 429 || init.status >= 500});
+        await mediaAppend(player, init.data); player.initialized = true;
+      }
+      const fragment = await request(base + selected.sequence + '.m4s', {}, 'bytes', 1048576);
+      if (!activeMedia(player)) return;
+      if (fragment.status === 401 || fragment.status === 410) { lostPairing(); return; }
+      if (fragment.status === 409 || fragment.status === 204) { stopMedia(); return; }
+      if (!fragment.ok || fragment.data.byteLength < 8) throw Object.assign(new Error('media fragment'), {temporary: fragment.status === 429 || fragment.status >= 500});
+      await mediaAppend(player, fragment.data);
+      if (!activeMedia(player)) return;
+      player.next = selected.sequence + 1;
+      if (!player.hasFragments) { player.hasFragments = true; player.lastProgressAt = Date.now(); }
+      await trimMedia(player);
+      if (!activeMedia(player)) return;
+      video.hidden = false; screen.hidden = true; $('empty').hidden = true;
+      $('soundButton').hidden = !player.waitingGesture && (!player.descriptor.hasAudio || player.soundEnabled);
+      $('mediaNote').hidden = false;
+      $('mediaNote').textContent = player.descriptor.hasAudio ? (player.soundEnabled ? '同步画面与声音' : '同步画面已连接，点「启用声音」播放声音。') : '同步画面，无可用音轨。';
+      tryMediaPlay(player);
+      delay = selected.sequence < last.sequence ? 0 : 180;
+    } catch (error) { if (activeMedia(player)) mediaFallback(player, error.temporary || error.name === 'AbortError' || error.name === 'TypeError'); }
+    finally { player.busy = false; if (activeMedia(player)) player.timer = setTimeout(() => { void mediaStep(player); }, delay); }
+  }
+  function tryMediaPlay(player, gesture = false) {
+    if (!activeMedia(player) || !gesture && player.playAttempted) return;
+    player.playAttempted = true; player.playPending = true; player.waitingGesture = false;
+    if (gesture) { soundConsent = player.descriptor.hasAudio; video.muted = !soundConsent; player.lastProgressAt = Date.now(); }
+    // Never await play(): some browsers leave this promise pending while decode stalls.
+    let attempt;
+    try { attempt = video.play(); } catch (error) { attempt = Promise.reject(error); }
+    Promise.resolve(attempt).then(() => {
+      if (!activeMedia(player)) return;
+      player.playPending = false; player.soundEnabled = player.descriptor.hasAudio && !video.muted;
+      $('soundButton').hidden = player.soundEnabled || !player.descriptor.hasAudio;
+      if (player.soundEnabled) $('mediaNote').textContent = '同步画面与声音';
+    }, () => {
+      if (!activeMedia(player)) return;
+      player.playPending = false; player.waitingGesture = true; player.soundEnabled = false;
+      video.muted = true; $('soundButton').hidden = false; $('soundButton').textContent = '点此播放';
+    });
+  }
+  function mediaPlaybackWatchdog() {
+    const player = media;
+    if (!player || !activeMedia(player) || !player.hasFragments || player.waitingGesture) return;
+    let decoded = 0;
+    try { decoded = video.getVideoPlaybackQuality?.().totalVideoFrames || video.webkitDecodedFrameCount || 0; } catch (_) {}
+    // A seek performed by backlog trimming is not decoder/playback progress.
+    if (decoded > player.lastDecodedFrames || !video.paused && !video.seeking && video.currentTime > player.lastVideoTime && video.currentTime - player.lastVideoTime < 0.8) {
+      player.lastProgressAt = Date.now();
+    }
+    player.lastDecodedFrames = decoded; player.lastVideoTime = video.currentTime;
+    if (Date.now() - player.lastProgressAt > 4000) mediaFallback(player);
+  }
+  video.addEventListener('error', () => { if (media) mediaFallback(media); });
+  $('soundButton').addEventListener('click', () => {
+    const player = media;
+    if (!player || !activeMedia(player)) return;
+    tryMediaPlay(player, true);
+  });
   function displayFrame() {
     if (lyricsOnly) return;
     if (snapshotMode) { void snapshot(); return; }
@@ -124,11 +353,11 @@
     if (!navigator.onLine) { disconnected(); schedule(5000); return; }
     const session = epoch, ticket = {}; pollBusy = ticket;
     try {
-      const response = await request('/api/state');
+      const response = await request('/api/state', {}, 'json');
       if (!current(session)) return;
       if (response.status === 401 || response.status === 410) { if (paired) lostPairing(); else { enabled = false; status('等待配对'); } return; }
       if (!response.ok) throw new Error(response.status === 429 ? '连接数量已达上限，请关闭其他接收页面。' : '无法读取手机状态。');
-      const state = await response.json();
+      const state = response.data;
       if (!current(session)) return;
       if (document.hidden || !navigator.onLine) { clearImage('等待接收页面恢复'); clearMusic(); schedule(3000); return; }
       showPaired(); failures = 0;
@@ -143,7 +372,8 @@
       $('viewerTitle').textContent = lyricsOnly ? '音乐与歌词' : demo ? 'DEMO · 原创演示' : '本地屏幕共享';
       screen.alt = demo ? 'DEMO 原创合成演示画面，非真实手机屏幕' : 'iPhone 共享屏幕';
       const age = Date.now() / 1000 - Number(state.frameUpdatedAt);
-      const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) && age >= -2 && age <= 4 && state.width > 0;
+      const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) &&
+        ((age >= -2 && age <= 4 && state.width > 0) || validMedia(state.media));
       displayMusic(state);
       if (lyricsOnly) {
         clearImage(); lastLiveAt = 0;
@@ -158,7 +388,7 @@
         clearImage(paused ? '来源已暂停' : '等待新画面', '旧画面与文字已隐藏，请在 iPhone 上检查广播或演示。');
         status(paused ? '已暂停' : '等待画面');
       } else {
-        lastLiveAt = Date.now(); status(demo ? 'DEMO · 本地连接' : '本地连接', true); displayFrame();
+        lastLiveAt = Date.now(); status(demo ? 'DEMO · 本地连接' : '本地连接', true); displayVisual(state.media);
         $('dimensions').textContent = `${state.width} × ${state.height}`;
         const textFresh = Date.now() / 1000 - Number(state.lyricUpdatedAt) <= 4 && Number(state.lyricUpdatedAt) <= Date.now() / 1000 + 2;
         const lines = textFresh && Array.isArray(state.lyricLines) ? state.lyricLines.slice(0, 24) : [];
@@ -177,6 +407,8 @@
   $('disconnect').addEventListener('click', () => { void disconnect(); });
   $('pairForm').addEventListener('submit', async event => {
     event.preventDefault(); if (loggingOut || $('pairButton').disabled || !$('pairConsent').checked || !/^[0-9]{6}$/.test($('pairCode').value)) return;
+    soundConsent = false; failedMedia = ''; mediaRetryCount = 0; mediaRetryAt = Infinity;
+    clearImage(); clearMusic();
     enabled = true; const session = ++epoch;
     clearTimeout(pollTimer); pollBusy = null;
     for (const controller of pending) controller.abort();
@@ -209,6 +441,7 @@
   window.addEventListener('online', () => schedule(0));
   document.addEventListener('visibilitychange', () => { if (!enabled) return; if (document.hidden) { clearImage('页面已隐藏'); clearMusic(); } else schedule(0); });
   setInterval(() => {
+    mediaPlaybackWatchdog();
     if (enabled && paired && !lyricsOnly && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。');
     if (musicFreshness && !musicIsFresh(musicFreshness)) clearMusic();
   }, 500);

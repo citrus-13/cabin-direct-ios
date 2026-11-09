@@ -13,6 +13,61 @@ let port = UInt16(argument("--port", fallback: "8765")) ?? 8765
 let code = argument("--paircode", fallback: "482619")
 let assetDirectory = argument("--assets", fallback: "../StandaloneWeb")
 let pauseAfter = Double(argument("--pause-after", fallback: "0")) ?? 0
+let mediaManifestPath = argument("--media-fixture", fallback: "")
+struct MediaFixtureManifest: Decodable {
+    struct Fragment: Decodable { let file: String; let sequence: UInt64; let start: Double; let duration: Double; let independent: Bool }
+    let schema: Int; let mime: String; let hasAudio: Bool; let initFile: String; let fragments: [Fragment]
+}
+struct MediaFixture {
+    let manifest: MediaFixtureManifest; let initialization: Data; let fragments: [Data]
+    init(path: String) throws {
+        guard path.hasPrefix("/") else { throw NSError(domain: "Fixture requires an absolute manifest path", code: 1) }
+        let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath(), directory = url.deletingLastPathComponent()
+        func bounded(_ file: URL, max: Int) throws -> Data {
+            let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+            guard attributes[.type] as? FileAttributeType == .typeRegular,
+                  let size = attributes[.size] as? NSNumber, size.intValue > 0, size.intValue <= max else {
+                throw NSError(domain: "Invalid fixture file bounds", code: 2)
+            }
+            let handle = try FileHandle(forReadingFrom: file)
+            defer { try? handle.close() }
+            let data = try handle.read(upToCount: max + 1) ?? Data()
+            guard !data.isEmpty, data.count <= max else { throw NSError(domain: "Fixture changed during read", code: 3) }
+            return data
+        }
+        func child(_ name: String) throws -> URL {
+            guard !name.isEmpty, name.count <= 100, !name.contains(".."),
+                  name.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil else { throw NSError(domain: "Invalid fixture filename", code: 4) }
+            let file = directory.appendingPathComponent(name).resolvingSymlinksInPath()
+            guard file.deletingLastPathComponent() == directory else { throw NSError(domain: "Fixture escapes directory", code: 5) }
+            return file
+        }
+        manifest = try JSONDecoder().decode(MediaFixtureManifest.self, from: bounded(url, max: 65_536))
+        guard manifest.schema == 1, !manifest.fragments.isEmpty, manifest.fragments.count <= 512,
+              manifest.fragments.first?.independent == true else { throw NSError(domain: "Invalid media fixture", code: 6) }
+        let mimePattern = manifest.hasAudio ? "^video/mp4; codecs=\"avc1\\.[A-Fa-f0-9]{6}, ?mp4a\\.40\\.2\"$" : "^video/mp4; codecs=\"avc1\\.[A-Fa-f0-9]{6}\"$"
+        guard manifest.mime.range(of: mimePattern, options: .regularExpression) != nil else { throw NSError(domain: "Invalid fixture codec", code: 11) }
+        initialization = try bounded(child(manifest.initFile), max: 65_536)
+        var result: [Data] = [], total = initialization.count, previous: MediaFixtureManifest.Fragment?
+        for fragment in manifest.fragments {
+            guard fragment.start.isFinite, fragment.start >= 0, fragment.start <= 86400, fragment.duration.isFinite, fragment.duration > 0, fragment.duration <= 2,
+                  fragment.sequence <= 9_007_199_254_740_991 else { throw NSError(domain: "Invalid fixture timestamp", code: 7) }
+            if let previous {
+                guard fragment.sequence == previous.sequence + 1,
+                      abs(fragment.start - previous.start - previous.duration) <= 0.1 else { throw NSError(domain: "Noncontiguous fixture", code: 8) }
+            }
+            let data = try bounded(child(fragment.file), max: 1_048_576)
+            total += data.count; guard total <= 33_554_432 else { throw NSError(domain: "Fixture exceeds 32 MiB", code: 9) }
+            result.append(data); previous = fragment
+        }
+        guard let first = manifest.fragments.first, let last = manifest.fragments.last,
+              last.start + last.duration - first.start <= 120 else { throw NSError(domain: "Fixture duration exceeds limit", code: 10) }
+        fragments = result
+    }
+}
+let mediaFixture: MediaFixture?
+do { mediaFixture = mediaManifestPath.isEmpty ? nil : try MediaFixture(path: mediaManifestPath) }
+catch { fputs("Media fixture rejected: \(error)\n", stderr); exit(1) }
 let fixtureStarted = Date().timeIntervalSince1970
 var random = [UInt8](repeating: 0, count: 32)
 guard SecRandomCopyBytes(kSecRandomDefault, random.count, &random) == errSecSuccess else { fatalError("Randomness unavailable") }
@@ -21,7 +76,43 @@ let mapping = [("/", "index.html", "text/html; charset=utf-8"), ("/direct.js", "
 var assets: [String: LocalHTTPAsset] = [:]
 for (path, name, type) in mapping { assets[path] = LocalHTTPAsset(data: try Data(contentsOf: URL(fileURLWithPath: assetDirectory).appendingPathComponent(name)), contentType: type) }
 let server = LocalHTTPServer(configuration: .init(token: token, pairingCode: code, expiresAt: Date().timeIntervalSince1970 + 1800), assets: assets, bindToLoopback: true)
-server.start(port: port, onReady: { port in print("Synthetic macOS fixture: http://127.0.0.1:\(port) | pair code \(code) | no iPhone proof"); fflush(stdout) }, onFailure: { error in fputs("Fixture failed: \(error)\n", stderr); exit(1) })
+var fixtureReady = false
+server.start(port: port, onReady: { port in
+    DispatchQueue.main.async { fixtureReady = true }
+    print("Synthetic macOS fixture: http://127.0.0.1:\(port) | pair code \(code) | no iPhone proof"); fflush(stdout)
+}, onFailure: { error in fputs("Fixture failed: \(error)\n", stderr); exit(1) })
+if let fixture = mediaFixture {
+    // Original generated test media only; these bytes are not live iPhone capture.
+    let first = fixture.manifest.fragments[0], last = fixture.manifest.fragments.last!
+    let period = max(1, last.start + last.duration - first.start)
+    var generation = UUID().uuidString, index = 0, loopStart = Date().timeIntervalSince1970
+    let mediaTimer = DispatchSource.makeTimerSource(queue: .main)
+    mediaTimer.schedule(deadline: .now(), repeating: 0.02)
+    mediaTimer.setEventHandler {
+        guard fixtureReady else { return }
+        let now = Date().timeIntervalSince1970
+        if pauseAfter > 0 && now - fixtureStarted >= pauseAfter {
+            server.updateState(.init(captureState: "paused", source: "demo")); server.clearMedia(); return
+        }
+        if now - loopStart >= period {
+            generation = UUID().uuidString; index = 0; loopStart = now; server.clearMedia()
+        }
+        server.updateState(.init(captureState: "live", source: "demo", message: "Original synthetic media fixture, not iPhone or vehicle evidence"))
+        if index == 0 {
+            server.updateMediaInitialization(.init(generation: generation, data: fixture.initialization, mime: fixture.manifest.mime, hasAudio: fixture.manifest.hasAudio))
+        }
+        while index < fixture.manifest.fragments.count && fixture.manifest.fragments[index].start - first.start <= now - loopStart {
+            let fragment = fixture.manifest.fragments[index]
+            server.updateMediaFragment(.init(generation: generation, sequence: fragment.sequence, data: fixture.fragments[index],
+                start: fragment.start, duration: fragment.duration, independent: fragment.independent, updatedAt: now))
+            index += 1
+        }
+    }
+    print("Original fMP4 fixture: \(fixture.manifest.fragments.count) fragments, \(period)s loop; loopback only; muted until user gesture")
+    mediaTimer.resume()
+    withExtendedLifetime(mediaTimer) { RunLoop.main.run() }
+    exit(0)
+}
 var sequence: UInt64 = 0
 let timer = DispatchSource.makeTimerSource(queue: .main)
 timer.schedule(deadline: .now(), repeating: 0.5)

@@ -74,6 +74,99 @@ final class LocalHTTPServerTests {
         return String(decoding: socket.read(), as: UTF8.self)
     }
     var auth: String { "Authorization: Bearer \(token)\r\n" }
+    let mediaID = "C601671F-573E-4CB7-9089-E154A593FCDF"
+    let nextMediaID = "C601671F-573E-4CB7-9089-E154A593FCDD"
+    let mediaMime = "video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\""
+    func initializeMedia(_ id: String? = nil) {
+        server.updateState(.init(captureState: "live"))
+        server.updateMediaInitialization(.init(generation: id ?? mediaID, data: Data(repeating: 1, count: 32), mime: mediaMime, hasAudio: true))
+    }
+    func mediaFragment(_ sequence: UInt64, start: Double, independent: Bool = true, id: String? = nil, size: Int = 64) {
+        server.updateMediaFragment(.init(generation: id ?? mediaID, sequence: sequence, data: Data(repeating: 2, count: size), start: start, duration: 0.25, independent: independent, updatedAt: clock.now()))
+    }
+    func mediaIndex() throws -> [String: Any] {
+        let result = try request("/media/index", headers: auth)
+        return try JSONSerialization.jsonObject(with: Data(result.components(separatedBy: "\r\n\r\n").last!.utf8)) as! [String: Any]
+    }
+    func testMediaAuthenticatedFreshIndexAndPaths() throws {
+        initializeMedia()
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        mediaFragment(0, start: 0, independent: false)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        mediaFragment(1, start: 0.25)
+        initializeMedia() // Repeated IDR initialization must not erase the bounded ring.
+        XCTAssertEqual((try mediaIndex()["fragments"] as? [[String: Any]])?.count, 1)
+        for path in ["/media/index", "/media/\(mediaID)/init.mp4", "/media/\(mediaID)/1.m4s"] {
+            XCTAssertTrue(try request(path).contains("401 Unauthorized"))
+            XCTAssertTrue(try request(path, headers: auth).contains("200 OK"))
+            XCTAssertTrue(try request(path, headers: auth + "Origin: https://evil.example\r\n").contains("403 Forbidden"))
+        }
+        let index = try mediaIndex()
+        XCTAssertEqual(index["generation"] as? String, mediaID)
+        XCTAssertEqual(index["mime"] as? String, mediaMime); XCTAssertEqual(index["hasAudio"] as? Bool, true)
+        let state = try request("/api/state", headers: auth)
+        XCTAssertTrue(state.contains("\"captureState\":\"live\""))
+        XCTAssertTrue(state.contains("\"media\":")); XCTAssertFalse(state.contains(token))
+        XCTAssertTrue(state.contains("media-src 'self' blob:"))
+        for path in ["/media/\(mediaID)/01.m4s", "/media/\(mediaID)/-1.m4s", "/media/../init.mp4", "/media/\(mediaID)/wat.mp4"] {
+            XCTAssertTrue(try request(path, headers: auth).contains("404 Not Found"))
+        }
+        XCTAssertTrue(try request("/media/index?token=bad", headers: auth).contains("400 Bad Request"))
+        clock.advance(5)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        XCTAssertTrue(try request("/media/\(mediaID)/1.m4s", headers: auth).contains("204 No Content"))
+    }
+    func testMediaBoundedWindowGenerationAndDiscontinuity() throws {
+        initializeMedia()
+        for sequence in UInt64(0)..<20 { mediaFragment(sequence, start: Double(sequence) / 4, independent: sequence % 4 == 0) }
+        let fragments = try mediaIndex()["fragments"] as! [[String: Any]]
+        XCTAssertTrue(fragments.count <= 12); XCTAssertEqual(fragments.first?["independent"] as? Bool, true)
+        XCTAssertTrue(try request("/media/\(mediaID)/0.m4s", headers: auth).contains("409 Conflict"))
+        XCTAssertTrue(try request("/media/\(mediaID)/19.m4s", headers: auth).contains("200 OK"))
+        // Missing a fragment cannot be disguised as a playable dependent continuation.
+        mediaFragment(21, start: 5.25, independent: false)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        mediaFragment(22, start: 5.5)
+        initializeMedia(nextMediaID)
+        mediaFragment(0, start: 0, id: nextMediaID)
+        mediaFragment(23, start: 5.75) // old-generation completion ignored
+        XCTAssertEqual(try mediaIndex()["generation"] as? String, nextMediaID)
+        XCTAssertTrue(try request("/media/\(mediaID)/init.mp4", headers: auth).contains("409 Conflict"))
+        for sequence in UInt64(1)..<8 { mediaFragment(sequence, start: Double(sequence) / 4, id: nextMediaID, size: 1_048_576) }
+        XCTAssertTrue((try mediaIndex()["fragments"] as! [[String: Any]]).count <= 4)
+        mediaFragment(8, start: 2, id: nextMediaID, size: 1_048_577)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+    }
+    func testMediaPauseLyricsAndInitializationValidation() throws {
+        for (generation, mime, hasAudio, size) in [("bad", mediaMime, true, 32), (mediaID, "video/mp4\r\nInjected: yes", true, 32),
+                                                 (mediaID, mediaMime, false, 32), (mediaID, mediaMime, true, 65_537)] {
+            server.updateMediaInitialization(.init(generation: generation, data: Data(repeating: 1, count: size), mime: mime, hasAudio: hasAudio))
+        }
+        server.updateState(.init(captureState: "live")); mediaFragment(0, start: 0)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        initializeMedia(); mediaFragment(0, start: 0)
+        server.updateState(.init(captureState: "paused"))
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        initializeMedia(); mediaFragment(1, start: 0.25) // retired epoch must not restart
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        initializeMedia(nextMediaID); mediaFragment(0, start: 0, id: nextMediaID)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("200 OK"))
+        server.updateState(.init(captureState: "waiting", source: "microphone-lyrics"))
+        mediaFragment(1, start: 0.25, id: nextMediaID)
+        for path in ["/media/index", "/media/\(nextMediaID)/init.mp4", "/media/\(nextMediaID)/0.m4s"] {
+            XCTAssertTrue(try request(path, headers: auth).contains("204 No Content"))
+        }
+        XCTAssertFalse(try request("/api/state", headers: auth).contains("\"media\":"))
+    }
+    func testMediaChangedInitializationRetiresEpoch() throws {
+        initializeMedia(); mediaFragment(0, start: 0)
+        server.updateMediaInitialization(.init(generation: mediaID, data: Data(repeating: 3, count: 32), mime: mediaMime, hasAudio: true))
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        initializeMedia(); mediaFragment(0, start: 0)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("204 No Content"))
+        initializeMedia(nextMediaID); mediaFragment(0, start: 0, id: nextMediaID)
+        XCTAssertTrue(try request("/media/index", headers: auth).contains("200 OK"))
+    }
     func publish(sequence: UInt64 = 1, size: Int = 20) {
         let time = clock.now()
         server.updateState(.init(captureState: "live", sequence: sequence, frameUpdatedAt: time, width: 960, height: 540, lyricState: "ready", lyricLines: ["original text"], lyricUpdatedAt: time))
@@ -382,14 +475,14 @@ final class LocalHTTPServerTests {
 
 @main private struct TestRunner {
     static func main() {
-        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause", "microphone-lyrics-source-frames"]
+        let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause", "microphone-lyrics-source-frames"] + ["media-authenticated-paths", "media-ring-generation", "media-lifecycle-validation", "media-initialization-immutability"]
         var passed = 0
         for index in names.indices {
             let suite = LocalHTTPServerTests(), before = assertionFailures
             do {
                 try suite.setUpWithError()
                 let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds, suite.testUnpairOnlyClearsRequestingBrowserCookie, suite.testIPv6AllowlistIsExactNormalizedAndBounded, suite.testStopAcknowledgesCleanupAndRapidSamePortRestart, suite.testStartupDeadlineFailsOnceAndCleansListener]
-                let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata, suite.testMicrophoneLyricsSourceRejectsFramesAndNormalizesUnknownSources]
+                let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata, suite.testMicrophoneLyricsSourceRejectsFramesAndNormalizesUnknownSources] + [suite.testMediaAuthenticatedFreshIndexAndPaths, suite.testMediaBoundedWindowGenerationAndDiscontinuity, suite.testMediaPauseLyricsAndInitializationValidation, suite.testMediaChangedInitializationRetiresEpoch]
                 try (tests + musicTests)[index]()
             } catch { XCTFail("\(names[index]): \(error)") }
             suite.tearDown()

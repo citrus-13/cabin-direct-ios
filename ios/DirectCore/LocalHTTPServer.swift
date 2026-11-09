@@ -29,6 +29,48 @@ public struct LocalJPEGFrame {
         self.data = data; self.sequence = sequence; self.updatedAt = updatedAt; self.width = width; self.height = height
     }
 }
+/// Producer-owned fMP4 bytes. Submit on an encoding/worker queue, not an audio tap.
+public struct LocalMediaInitialization {
+    public let generation: String
+    public let data: Data
+    public let mime: String
+    public let hasAudio: Bool
+    public init(generation: String, data: Data, mime: String, hasAudio: Bool) {
+        self.generation = generation; self.data = data; self.mime = mime; self.hasAudio = hasAudio
+    }
+}
+public struct LocalMediaFragment {
+    public let generation: String
+    public let sequence: UInt64
+    public let data: Data
+    public let start: Double
+    public let duration: Double
+    public let independent: Bool
+    public let updatedAt: Double
+    public init(generation: String, sequence: UInt64, data: Data, start: Double, duration: Double, independent: Bool, updatedAt: Double) {
+        self.generation = generation; self.sequence = sequence; self.data = data; self.start = start
+        self.duration = duration; self.independent = independent; self.updatedAt = updatedAt
+    }
+}
+public struct LocalMediaDescriptor: Codable {
+    public let generation: String
+    public let mime: String
+    public let hasAudio: Bool
+    public let updatedAt: Double
+}
+private struct LocalMediaIndex: Encodable {
+    struct Entry: Encodable {
+        let sequence: UInt64
+        let start: Double
+        let duration: Double
+        let independent: Bool
+    }
+    let generation: String
+    let mime: String
+    let hasAudio: Bool
+    let updatedAt: Double
+    let fragments: [Entry]
+}
 /// Public, credential-free music metadata. Kept separate from screen OCR.
 public struct LocalMusicState: Codable {
     public var status: String
@@ -58,10 +100,12 @@ public struct LocalPublicState: Codable {
     public var source: String
     public var message: String
     public var music: LocalMusicState?
+    public var media: LocalMediaDescriptor?
     public init(captureState: String = "waiting", sequence: UInt64 = 0, frameUpdatedAt: Double = 0, width: Int = 0, height: Int = 0, lyricState: String = "disabled", lyricLines: [String] = [], lyricUpdatedAt: Double = 0, source: String = "visible-screen", message: String = "", music: LocalMusicState? = nil) {
         self.captureState = captureState; self.sequence = sequence; self.frameUpdatedAt = frameUpdatedAt
         self.width = width; self.height = height; self.lyricState = lyricState; self.lyricLines = lyricLines
         self.lyricUpdatedAt = lyricUpdatedAt; self.source = source; self.message = message; self.music = music
+        self.media = nil
     }
 }
 
@@ -77,6 +121,7 @@ public final class LocalHTTPServer {
         var sending = false
         var sendStarted: Double = 0
         var lastSequence: UInt64?
+        var mediaGeneration: String?
         init(_ connection: NWConnection, opened: Double) { self.connection = connection; self.opened = opened }
     }
     private let configuration: LocalServerConfiguration
@@ -86,6 +131,7 @@ public final class LocalHTTPServer {
     private let allowedIPv6: [[UInt8]]
     private let validIPv6Configuration: Bool
     private let queue = DispatchQueue(label: "CabinDirect.LocalHTTPServer")
+    private let queueKey = DispatchSpecificKey<UInt8>()
     private var listener: NWListener?
     private var stoppingListener: NWListener?
     private var stopCallbacks: [() -> Void] = []
@@ -94,6 +140,10 @@ public final class LocalHTTPServer {
     private var timer: DispatchSourceTimer?
     private var clients: [UUID: Client] = [:]
     private var frame: LocalJPEGFrame?
+    private var mediaInitialization: LocalMediaInitialization?
+    private var mediaFragments: [LocalMediaFragment] = []
+    private var mediaBytes = 0
+    private var retiredMedia: [String] = []
     private let pendingFrameLock = NSLock()
     private var pendingFrame: LocalJPEGFrame?
     private var frameDrainScheduled = false
@@ -112,6 +162,7 @@ public final class LocalHTTPServer {
         self.allowedIPv6 = normalized
         self.validIPv6Configuration = configuration.allowedIPv6Hosts.count <= 16 && normalized.count == configuration.allowedIPv6Hosts.count
         self.assets = assets.filter { ["/", "/direct.js", "/direct.css"].contains($0.key) && $0.value.data.count <= 524_288 && !$0.value.contentType.contains("\r") && !$0.value.contentType.contains("\n") }
+        queue.setSpecific(key: queueKey, value: 1)
     }
     public func start(port: UInt16, onReady: @escaping (UInt16) -> Void, onFailure: @escaping (Error) -> Void) {
         queue.async {
@@ -176,16 +227,86 @@ public final class LocalHTTPServer {
             if !safe.frameUpdatedAt.isFinite { safe.frameUpdatedAt = 0 }
             if !safe.lyricUpdatedAt.isFinite { safe.lyricUpdatedAt = 0 }
             safe.music = self.safeMusic(safe.music, captureState: safe.captureState)
+            safe.media = nil // Only server-validated, fresh fragments advertise a stream.
+            if safe.source == "microphone-lyrics" || ["paused", "ended", "stopped", "error"].contains(safe.captureState) { self.clearMediaOnQueue() }
             if safe.source == "microphone-lyrics" || self.state.source == "microphone-lyrics" { self.frame = nil }
             self.state = safe
             if ["paused", "ended", "stopped", "waiting", "error"].contains(safe.captureState) { self.frame = nil }
         }
+    }
+    private func mediaSync(_ body: () -> Void) {
+        if DispatchQueue.getSpecific(key: queueKey) != nil { body() } else { queue.sync(execute: body) }
+    }
+    /// Synchronous bounded admission prevents queued retained fragment Data growing without limit.
+    public func updateMediaInitialization(_ value: LocalMediaInitialization) {
+        mediaSync {
+            guard self.running, self.state.source != "microphone-lyrics",
+                  UUID(uuidString: value.generation) != nil, value.generation.count == 36,
+                  !self.retiredMedia.contains(value.generation),
+                  value.data.count >= 8, value.data.count <= 65_536,
+                  Self.validMediaMime(value.mime, hasAudio: value.hasAudio) else { return }
+            if let old = self.mediaInitialization, old.generation == value.generation {
+                if old.data != value.data || old.mime != value.mime || old.hasAudio != value.hasAudio { self.clearMediaOnQueue() }
+                return
+            }
+            self.clearMediaOnQueue()
+            self.mediaInitialization = value
+        }
+    }
+    public func updateMediaFragment(_ value: LocalMediaFragment) {
+        mediaSync {
+            guard self.running, self.state.source != "microphone-lyrics",
+                  !["paused", "ended", "stopped", "error"].contains(self.state.captureState),
+                  self.mediaInitialization?.generation == value.generation else { return }
+            let time = self.now()
+            guard value.sequence <= 9_007_199_254_740_991, value.data.count >= 8, value.data.count <= 1_048_576,
+                  value.start.isFinite, value.start >= 0, value.start <= 86_400,
+                  value.duration.isFinite, value.duration > 0, value.duration <= 2,
+                  value.updatedAt.isFinite, value.updatedAt <= time + 1, time - value.updatedAt <= Self.staleAfter else {
+                self.mediaFragments.removeAll(); self.mediaBytes = 0; return
+            }
+            if let last = self.mediaFragments.last {
+                if value.sequence <= last.sequence { return }
+                if value.sequence != last.sequence + 1 || abs(value.start - (last.start + last.duration)) > 0.1 {
+                    self.mediaFragments.removeAll(); self.mediaBytes = 0
+                }
+            }
+            guard !self.mediaFragments.isEmpty || value.independent else { return }
+            self.mediaFragments.append(value); self.mediaBytes += value.data.count
+            while let first = self.mediaFragments.first,
+                  self.mediaBytes > 4_194_304 || self.mediaFragments.count > 60 || value.start + value.duration - first.start > 3 {
+                self.mediaBytes -= self.mediaFragments.removeFirst().data.count
+            }
+            while let first = self.mediaFragments.first, !first.independent {
+                self.mediaBytes -= self.mediaFragments.removeFirst().data.count
+            }
+        }
+    }
+    public func clearMedia() { mediaSync { self.clearMediaOnQueue() } }
+    private func clearMediaOnQueue() {
+        if let initialization = mediaInitialization {
+            retiredMedia.append(initialization.generation)
+            if retiredMedia.count > 32 { retiredMedia.removeFirst() }
+        }
+        for client in Array(clients.values) where client.mediaGeneration != nil { close(client) }
+        mediaInitialization = nil; mediaFragments.removeAll(); mediaBytes = 0
+    }
+    private static func validMediaMime(_ mime: String, hasAudio: Bool) -> Bool {
+        let pattern = hasAudio ? "^video/mp4; codecs=\"avc1\\.[0-9A-Fa-f]{6}, ?mp4a\\.40\\.2\"$" : "^video/mp4; codecs=\"avc1\\.[0-9A-Fa-f]{6}\"$"
+        return mime.range(of: pattern, options: .regularExpression) != nil
+    }
+    private func currentMedia() -> LocalMediaDescriptor? {
+        guard state.source != "microphone-lyrics", ["live", "broadcasting", "running", "capturing"].contains(state.captureState),
+              let initialization = mediaInitialization, let first = mediaFragments.first, first.independent,
+              let last = mediaFragments.last, now() - last.updatedAt <= Self.staleAfter, last.updatedAt <= now() + 1 else { return nil }
+        return .init(generation: initialization.generation, mime: initialization.mime, hasAudio: initialization.hasAudio, updatedAt: last.updatedAt)
     }
     private func error(_ message: String) -> NSError { NSError(domain: "CabinDirect.HTTP", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func stopOnQueue(onStopped: (() -> Void)? = nil) {
         if let onStopped { stopCallbacks.append(onStopped) }
         running = false; listenerReady = false; failureCallback = nil
         timer?.cancel(); timer = nil
+        clearMediaOnQueue()
         for client in Array(clients.values) { close(client) }; frame = nil; state.music = nil
         if let listener {
             self.listener = nil; stoppingListener = listener
@@ -337,6 +458,7 @@ public final class LocalHTTPServer {
     private func publicState() -> LocalPublicState {
         var result = state
         result.music = safeMusic(result.music, captureState: result.captureState)
+        result.media = currentMedia()
         if result.source == "microphone-lyrics" {
             result.sequence = 0; result.frameUpdatedAt = 0; result.width = 0; result.height = 0
             result.lyricState = "disabled"; result.lyricLines = []; result.lyricUpdatedAt = 0
@@ -344,7 +466,7 @@ public final class LocalHTTPServer {
         }
         if let frame = currentFrame() { result.sequence = frame.sequence; result.frameUpdatedAt = frame.updatedAt; result.width = frame.width; result.height = frame.height }
         else {
-            if !["paused", "ended", "stopped", "waiting", "error"].contains(result.captureState) { result.captureState = "stale" }
+            if result.media == nil && !["paused", "ended", "stopped", "waiting", "error"].contains(result.captureState) { result.captureState = "stale" }
             result.lyricLines = []; result.width = 0; result.height = 0
         }
         if now() - result.lyricUpdatedAt > Self.staleAfter || result.lyricUpdatedAt > now() + 1 { result.lyricLines = []; if result.lyricState != "disabled" { result.lyricState = "stale" } }
@@ -368,8 +490,9 @@ public final class LocalHTTPServer {
             let ttl = Int(min(Double(Int32.max), max(0, configuration.expiresAt - now())))
             respond(client, 200, data: Data("{\"paired\":true}".utf8), type: "application/json", extra: "Set-Cookie: cabin_viewer=\(configuration.token); HttpOnly; SameSite=Strict; Path=/; Max-Age=\(ttl)\r\n"); return
         }
-        guard method == "GET", ["/api/state", "/frame.jpg", "/stream.mjpeg"].contains(path) else { respond(client, 404); return }
+        guard method == "GET", ["/api/state", "/frame.jpg", "/stream.mjpeg"].contains(path) || path.hasPrefix("/media/") else { respond(client, 404); return }
         guard authorized(headers) else { respond(client, 401); return }
+        if path.hasPrefix("/media/") { routeMedia(client, path: path); return }
         switch path {
         case "/api/state": respond(client, 200, data: (try? JSONEncoder().encode(publicState())) ?? Data("{}".utf8), type: "application/json")
         case "/frame.jpg":
@@ -386,11 +509,30 @@ public final class LocalHTTPServer {
             }
         }
     }
+    private func routeMedia(_ client: Client, path: String) {
+        guard let descriptor = currentMedia(), let initialization = mediaInitialization else { respond(client, 204); return }
+        client.mediaGeneration = descriptor.generation
+        if path == "/media/index" {
+            let index = LocalMediaIndex(generation: descriptor.generation, mime: descriptor.mime, hasAudio: descriptor.hasAudio,
+                updatedAt: descriptor.updatedAt, fragments: mediaFragments.map { .init(sequence: $0.sequence, start: $0.start, duration: $0.duration, independent: $0.independent) })
+            respond(client, 200, data: (try? JSONEncoder().encode(index)) ?? Data("{}".utf8), type: "application/json"); return
+        }
+        let parts = path.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts[1] == "media", UUID(uuidString: String(parts[2])) != nil else { respond(client, 404); return }
+        guard parts[2] == descriptor.generation else { respond(client, 409); return }
+        if parts[3] == "init.mp4" { respond(client, 200, data: initialization.data, type: "video/mp4"); return }
+        let name = String(parts[3])
+        guard name.hasSuffix(".m4s") else { respond(client, 404); return }
+        let digits = String(name.dropLast(4))
+        guard let sequence = UInt64(digits), String(sequence) == digits else { respond(client, 404); return }
+        guard let fragment = mediaFragments.first(where: { $0.sequence == sequence }) else { respond(client, 409); return }
+        respond(client, 200, data: fragment.data, type: "video/iso.segment")
+    }
     private var securityHeaders: String {
-        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()\r\n"
+        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'\r\nPermissions-Policy: camera=(), microphone=(), geolocation=()\r\n"
     }
     private func respond(_ client: Client, _ status: Int, data: Data = Data(), type: String = "text/plain", extra: String = "") {
-        let reasons = [200:"OK", 204:"No Content", 400:"Bad Request", 401:"Unauthorized", 403:"Forbidden", 404:"Not Found", 410:"Gone", 413:"Payload Too Large", 429:"Too Many Requests", 431:"Request Header Fields Too Large"]
+        let reasons = [200:"OK", 204:"No Content", 400:"Bad Request", 401:"Unauthorized", 403:"Forbidden", 404:"Not Found", 409:"Conflict", 410:"Gone", 413:"Payload Too Large", 429:"Too Many Requests", 431:"Request Header Fields Too Large"]
         var response = Data("HTTP/1.1 \(status) \(reasons[status] ?? "Error")\r\nContent-Length: \(data.count)\r\nContent-Type: \(type)\r\n\(securityHeaders)\(extra)Connection: close\r\n\r\n".utf8)
         response.append(data); send(client, data: response, closeAfter: true)
     }

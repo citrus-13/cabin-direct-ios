@@ -81,7 +81,9 @@ test('simplified start validates settings but still requires fresh consent and t
   assert.match(prepare, /model\.save\(\)[\s\S]*guard model\.saved else[\s\S]*return/);
   assert.match(prepare, /acknowledged = false[\s\S]*showBroadcast = true/);
   assert.doesNotMatch(prepare, /startCapture|startRecording|sendActions|\.start\(/);
-  assert.match(sheet, /Toggle\("我已停车，并同意共享屏幕", isOn: \$acknowledged\)/);
+  assert.match(sheet, /Toggle\("我已停车，同意共享屏幕和应用声音", isOn: \$acknowledged\)/);
+  assert.match(sheet, /画面、通知和系统允许的应用声音会发送到已配对的设备/);
+  assert.match(sheet, /投屏不使用麦克风/);
   assert.match(sheet, /model\.saved && acknowledged && !model\.active && !model\.stopPending/);
   assert.match(sheet, /HTTP 未加密/);
   assert.match(app, /model\.requestStop\(\)[\s\S]*actionNotice = model\.stopPending \? nil : "请点 iPhone 顶部的录屏标记停止投屏。"/);

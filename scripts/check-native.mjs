@@ -54,6 +54,14 @@ const capture = path.join(work, 'bin', 'direct-capture-checks');
 if (execute('capture-compile', 'swiftc', ['-D', 'DIRECT_CAPTURE_STANDALONE', '-module-cache-path', path.join(work, 'module-cache'),
   'ios/DirectCapture/CapturePipeline.swift', 'ios/DirectCapture/Tests/CapturePipelineTests.swift',
   'ios/DirectCapture/Tests/NativeAcceptance.swift', '-o', capture])) execute('capture-tests', capture, []);
+const media = path.join(work, 'bin', 'direct-media-checks');
+const mux = path.join(work, 'bin', 'direct-mux-checks');
+if (execute('mux-compile', 'swiftc', ['-module-cache-path', path.join(work, 'module-cache'),
+  'ios/DirectCapture/FragmentedMP4.swift', 'ios/DirectMediaChecks/main.swift', '-o', mux])) execute('mux-tests', mux, []);
+if (execute('media-compile', 'swiftc', ['-D', 'DIRECT_MEDIA_STANDALONE', '-application-extension',
+  '-module-cache-path', path.join(work, 'module-cache'), 'ios/DirectCapture/CapturePipeline.swift',
+  'ios/DirectCapture/FragmentedMP4.swift', 'ios/DirectCapture/DirectMediaPipeline.swift',
+  'ios/DirectCapture/Tests/MediaNativeAcceptance.swift', '-o', media])) execute('media-synthetic-tests', media, []);
 swiftRun('tesla-ble-offline', 'ios/TeslaBLE', 'TeslaBLEOfflineChecks');
 const shared = path.join(work, 'bin', 'direct-integration-checks');
 if (execute('shared-compile', 'swiftc', ['-module-cache-path', path.join(work, 'module-cache'),

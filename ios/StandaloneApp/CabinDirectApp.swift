@@ -250,7 +250,8 @@ struct DirectSetupView: View {
                 DisclosureGroup("如何连接") {
                     Text("手机开热点：先让车机连接这台 iPhone 的个人热点，再开始投屏。")
                     Text("家里 Wi-Fi 或另一台设备的热点：手机和车机连接同一个网络，再开始投屏。")
-                    Text("可先将首页地址存为车机书签；开始投屏后才能打开。换网络后地址可能变化，请核对首页。")
+                    Text("收藏固定入口，首次填入下方本地地址；车机可记住地址，下次自动进入。同一会话断线后会自动重连。")
+                    Text("固定入口不会扫描手机。换网络后核对本地地址；新会话需要重新配对。首次网页播放声音可能要点“开启声音”。")
                     Text("网络切换后重新开始投屏；不需要 Mac 中转。")
                     Text("若车机打不开地址，可尝试其他地址，并确认允许 Cabin 访问本地网络。访客网络可能不允许设备互连。")
                 }
@@ -298,6 +299,7 @@ struct DirectSetupView: View {
             }.accessibilityIdentifier("lyrics.track")
         }
         Section("车机连接地址") {
+            fixedEntryRow
             Text(lyrics.running ? "在车机浏览器打开此地址。" : "尚未开始歌词")
                 .font(.footnote).foregroundStyle(.secondary)
             if let status = lyrics.status, status.isCurrent, status.port > 0,
@@ -354,11 +356,11 @@ struct DirectSetupView: View {
             List {
                 Section {
                     Text("开始共享屏幕").font(.title2.bold()).accessibilityAddTraits(.isHeader)
-                    Text("画面和通知会显示在已配对的设备上，建议先开启专注模式。")
+                    Text("画面、通知和系统允许的应用声音会发送到已配对的设备，建议先开启专注模式。投屏不使用麦克风。")
                     Label("只使用可信网络；本地 HTTP 未加密。", systemImage: "lock.open")
                         .font(.footnote).foregroundStyle(.secondary)
                         .accessibilityIdentifier("network.http-warning")
-                    Toggle("我已停车，并同意共享屏幕", isOn: $acknowledged)
+                    Toggle("我已停车，同意共享屏幕和应用声音", isOn: $acknowledged)
                         .disabled(model.active)
                         .accessibilityIdentifier("consent.screen-sharing")
                 }
@@ -470,6 +472,7 @@ struct DirectSetupView: View {
 
     private var connectionSection: some View {
         Section("车机连接地址") {
+            fixedEntryRow
             Text(addressCaption).font(.footnote).foregroundStyle(.secondary)
                 .accessibilityIdentifier("network.address-status")
             if let address = receiverURLs.first {
@@ -507,6 +510,15 @@ struct DirectSetupView: View {
                 }
             }
             if !copied.isEmpty { Text(copied).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private var fixedEntryRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("固定入口 · 车机收藏一次").font(.footnote).foregroundStyle(.secondary)
+            receiverAddressRow("https://citrus-13.github.io/cabin-direct-ios/", identifier: "network.fixed-entry")
+            Text("首次填写下方本地地址；入口只记住地址，不保存配对码。")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -600,7 +612,7 @@ private struct DirectPrivacyStatementView: View {
             }
             Section("共享什么") {
                 Text("画面可能包含通知和私人消息，建议使用专注模式。只共享你有权显示的内容；受保护视频可能无法投屏。")
-                Text("投屏模式的画面与提取文字在手机本地处理，只发送给已配对的浏览器。投屏不使用麦克风、不保存或转发音轨。声音继续由原播放器播放。")
+                Text("投屏模式将画面与系统允许的应用声音编码后，仅发送给已配对的本地浏览器；短缓存用于同步播放，不保存音视频文件，也不使用麦克风。浏览器可能需要你点击开启声音。不兼容时回退为无声画面。")
                 Label("本地 HTTP 未加密，只使用可信网络。", systemImage: "lock.open")
                     .foregroundStyle(.secondary).accessibilityIdentifier("privacy.http-warning")
                 Text("配对码不等于加密。不要公开地址或配对码，也不要将服务开放到公网。")
@@ -612,6 +624,7 @@ private struct DirectPrivacyStatementView: View {
             Section("保存与停止") {
                 Text("设置和最后运行状态保存在本机。画面、识曲结果和歌词只保留本次会话需要的最新内容，不自动上传诊断信息。")
                 Text("只有点复制才会写入本机剪贴板，内容两分钟后过期且不参与通用剪贴板。配对凭据随会话失效。")
+                Text("固定入口由免费的 GitHub Pages 托管，仅跳转到你确认的本地地址，不中转媒体。选记住后地址保存在车机浏览器，可随时忘记；GitHub 会记录普通网页访问信息。地址变化需更新，新会话仍需配对。")
                 Text("退出 App 不会替你停止系统投屏。请用停止按钮或 iPhone 顶部录屏标记结束；锁屏或系统限制可能中断投屏。")
             }
             Section {
