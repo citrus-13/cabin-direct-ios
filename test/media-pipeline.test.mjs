@@ -30,6 +30,8 @@ test('screen media remains separate from microphone lyrics and has no recorder o
   const lyrics = read('ios/StandaloneApp/DirectLyricsMode.swift');
   const runtime = read('ios/StandaloneBroadcast/DirectSampleHandler.swift');
   assert.doesNotMatch(native, /AVAudioEngine|AVAudioSession|AVAudioRecorder|URLSession|\.write\(to:|FileManager/);
+  assert.match(native, /if #available\(iOS 17\.4, \*\) \{\s*specification = \[kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder/);
+  assert.match(native, /encoderSpecification: specification/);
   assert.doesNotMatch(lyrics, /DirectMediaPipeline|updateMediaFragment|updateMediaInitialization/);
   assert.match(runtime, /sampleBufferType == \.audioApp/);
   assert.match(runtime, /guard sampleBufferType == \.video else/);

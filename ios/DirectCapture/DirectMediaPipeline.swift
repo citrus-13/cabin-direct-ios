@@ -205,9 +205,15 @@ public final class DirectMediaPipeline {
 
     private func createVideoEncoder(width: Int, height: Int) -> Bool {
         var session: VTCompressionSession?
+        // On older supported iOS versions VideoToolbox chooses its default
+        // encoder. The explicit hardware preference is available from iOS 17.4.
+        var specification: CFDictionary?
+        if #available(iOS 17.4, *) {
+            specification = [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true] as CFDictionary
+        }
         let created = VTCompressionSessionCreate(allocator: kCFAllocatorDefault, width: Int32(width), height: Int32(height),
             codecType: kCMVideoCodecType_H264,
-            encoderSpecification: [kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true] as CFDictionary,
+            encoderSpecification: specification,
             imageBufferAttributes: nil, compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &session)
         guard created == noErr, let session else { report("H.264 实时编码器不可用；未建立音画流。"); return false }
         for (key, value): (CFString, CFTypeRef) in [
