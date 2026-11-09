@@ -193,6 +193,9 @@ test('home and settings reject removed diagnostics while tests never trigger pre
   assert.match(ui, /XCTAssertEqual\(app\.tabBars\.buttons\.count, 2\)/);
   assert.match(ui, /XCTAssertTrue\(selected\.isSelected/);
   assert.match(ui, /element\("action\.broadcast\.prepare", in: app\)\.exists/);
+  assert.match(ui, /reveal\(prepare, identifier: "action\.broadcast\.prepare", in: app\)[\s\S]*XCTAssertTrue\(prepare\.isHittable[\s\S]*XCTAssertTrue\(prepare\.isEnabled\)/);
+  assert.doesNotMatch(ui, /element\("action\.broadcast\.prepare", in: app\)\.isEnabled/,
+    'Reacquire a lazy offscreen row before checking its enabled state');
   assert.match(ui, /XCTAssertEqual\(addressStatus\.label, "尚未开始投屏"\)/);
   assert.match(ui, /XCTAssertEqual\(url\?\.port, 8787\)/);
   assert.match(ui, /XCTAssertNil\(url\?\.query/);

@@ -172,7 +172,13 @@ final class CabinDirectUITests: XCTestCase {
         }
         XCTAssertFalse(element("action.receiver.copy-code", in: app).exists)
         XCTAssertFalse(element("action.broadcast.stop", in: app).exists)
-        XCTAssertTrue(element("action.broadcast.prepare", in: app).isEnabled)
+        // The address section can scroll this lazy List row out of the AX tree
+        // at accessibility sizes. Return to the actual control before querying
+        // its state, and prove it is reachable without starting capture.
+        let prepare = element("action.broadcast.prepare", in: app)
+        reveal(prepare, identifier: "action.broadcast.prepare", in: app)
+        XCTAssertTrue(prepare.isHittable, "Start must remain reachable after reading the connection address")
+        XCTAssertTrue(prepare.isEnabled)
         assertNoDiagnostics(in: app)
         for phrase in ["开发验证版", "实机验收", "测试报告", "DEMO", "原创演示"] {
             XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", phrase)).firstMatch.exists,
