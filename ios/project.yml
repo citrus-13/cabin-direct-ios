@@ -20,6 +20,8 @@ packages:
     path: DirectCore
   DirectCapture:
     path: DirectCapture
+  TeslaBLE:
+    path: TeslaBLE
   WebRTC:
     url: https://github.com/stasel/WebRTC.git
     exactVersion: 156.0.0
@@ -102,8 +104,6 @@ targets:
       - Shared/DirectConfiguration.swift
       - Shared/DirectLyrics.swift
       - Shared/DirectMusicClock.swift
-      - StandaloneBroadcast/DirectMusicRuntime.swift
-      - StandaloneBroadcast/DirectMusicRecognizer.swift
       - path: ../LICENSE
         buildPhase: resources
       - path: ../NOTICE
@@ -126,8 +126,7 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         NSLocalNetworkUsageDescription: Share lyrics or your screen only with browsers you pair on your trusted local network.
-        NSMicrophoneUsageDescription: Listen to music playing around your phone to recognize songs and show lyrics. No screen sharing or saved recordings. Stop lyrics to turn off the microphone.
-        UIBackgroundModes: [audio]
+        NSBluetoothAlwaysUsageDescription: Connect to your Tesla after explicit pairing to read song title, artist and playback progress for lyrics. No vehicle controls or microphone.
         TCAppGroupIdentifier: $(DIRECT_APP_GROUP_IDENTIFIER)
         TCBroadcastExtensionIdentifier: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
         UISupportedInterfaceOrientations:
@@ -143,12 +142,13 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX)
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.7.0"
+        MARKETING_VERSION: "0.8.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - target: DirectBroadcastExtension
         embed: true
       - package: DirectCore
+      - package: TeslaBLE
   DirectBroadcastExtension:
     type: app-extension
     platform: iOS
@@ -190,7 +190,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DIRECT_APP_BUNDLE_PREFIX).broadcast
         TARGETED_DEVICE_FAMILY: "1"
-        MARKETING_VERSION: "0.7.0"
+        MARKETING_VERSION: "0.8.0"
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS:

@@ -16,29 +16,31 @@ fs.appendFileSync(process.env.FIXTURE_TRACE, JSON.stringify({tool,args,developer
 function put(file, value) { fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, typeof value==='string' ? value : JSON.stringify(value)); }
 if (tool==='xcodegen') {
   if(process.env.FIXTURE_GENERATE_FAIL) process.exit(7);
-  const objects={root:{isa:'PBXProject',targets:['app','ext'],packageReferences:['p1','p2']},
-    app:{name:'CabinDirect',productType:'com.apple.product-type.application',buildPhases:['resources'],packageProductDependencies:['core']},
+  const objects={root:{isa:'PBXProject',targets:['app','ext'],packageReferences:['p1','p2','p3']},
+    app:{name:'CabinDirect',productType:'com.apple.product-type.application',buildPhases:['resources'],packageProductDependencies:['core','tesla']},
     ext:{name:'DirectBroadcastExtension',productType:'com.apple.product-type.app-extension',buildPhases:['resources'],packageProductDependencies:['core','capture']},
-    core:{isa:'XCSwiftPackageProductDependency',productName:process.env.FIXTURE_BAD_PRODUCT?'TeslaBLE':'DirectCore'},
+    core:{isa:'XCSwiftPackageProductDependency',productName:process.env.FIXTURE_BAD_PRODUCT?'WebRTC':'DirectCore'},
+    tesla:{isa:'XCSwiftPackageProductDependency',productName:'TeslaBLE'},
     capture:{isa:'XCSwiftPackageProductDependency',productName:'DirectCapture'},
     resources:{isa:'PBXResourcesBuildPhase',files:['webBuild','privacyBuild','licenseBuild','noticeBuild']},webBuild:{fileRef:'web'},
     privacyBuild:{fileRef:'privacy'},privacy:{path:'PrivacyInfo.xcprivacy'},licenseBuild:{fileRef:'license'},license:{path:'../LICENSE'},noticeBuild:{fileRef:'notice'},notice:{path:'../NOTICE'},
     web:{path:process.env.FIXTURE_BAD_RESOURCE?'WrongWeb':'StandaloneWeb',lastKnownFileType:'folder'},
     p1:{isa:'XCLocalSwiftPackageReference',relativePath:process.env.FIXTURE_BAD_PACKAGE?'../DirectCore':'DirectCore'},
-    p2:{isa:'XCLocalSwiftPackageReference',relativePath:'DirectCapture'}};
+    p2:{isa:'XCLocalSwiftPackageReference',relativePath:'DirectCapture'},
+    p3:{isa:'XCLocalSwiftPackageReference',relativePath:'TeslaBLE'}};
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/project.pbxproj'), {objects,rootObject:'root'});
   put(path.join(root,'ios/TeslaCompanion.xcodeproj/xcshareddata/xcschemes/CabinDirect.xcscheme'), '<Scheme/>');
   const common={TCAppGroupIdentifier:'group.$(DIRECT_APP_BUNDLE_PREFIX)',NSLocalNetworkUsageDescription:'Connect a browser on your trusted local network.'};
   common.CFBundleShortVersionString = process.env.FIXTURE_BAD_VERSION ? '1.0' : '$(MARKETING_VERSION)';
   common.CFBundleVersion = '$(CURRENT_PROJECT_VERSION)';
-  if(process.env.FIXTURE_BAD_PERMISSION) common.NSBluetoothAlwaysUsageDescription='Not allowed in V1';
-  put(path.join(root,'ios/Config/Direct-App-Info.plist'), {...common,NSMicrophoneUsageDescription:'Listen to audible music for user-started automatic lyrics. No screen capture.',UIBackgroundModes:['audio']});
+  if(process.env.FIXTURE_BAD_PERMISSION) common.NSMicrophoneUsageDescription='No microphone allowed';
+  put(path.join(root,'ios/Config/Direct-App-Info.plist'), {...common,NSBluetoothAlwaysUsageDescription:'Read only Tesla media over Bluetooth after explicit user pairing.'});
   put(path.join(root,'ios/Config/Direct-Broadcast-Info.plist'), {...common,NSExtension:{NSExtensionPointIdentifier:'com.apple.broadcast-services-upload',NSExtensionPrincipalClass:'$(PRODUCT_MODULE_NAME).DirectSampleHandler',RPBroadcastProcessMode:'RPBroadcastProcessModeSampleBuffer'}});
   const entitlements={'com.apple.security.application-groups':[common.TCAppGroupIdentifier]};
   if(process.env.FIXTURE_BAD_KEYCHAIN) entitlements['keychain-access-groups']=['forbidden-in-v1'];
   put(path.join(root,'ios/Config/Direct-App.entitlements'),entitlements);
   put(path.join(root,'ios/Config/Direct-Broadcast.entitlements'),process.env.FIXTURE_BAD_ENTITLEMENT?{}:entitlements);
-  put(path.join(root,'ios/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:!!process.env.FIXTURE_BAD_PRIVACY,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:['35F9.1']}]});
+  put(path.join(root,'ios/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:!!process.env.FIXTURE_BAD_PRIVACY,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:['35F9.1']},{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategoryUserDefaults',NSPrivacyAccessedAPITypeReasons:['CA92.1']}]});
   put(path.join(root,'ios/Privacy/Broadcast/PrivacyInfo.xcprivacy'),{NSPrivacyTracking:false,NSPrivacyTrackingDomains:[],NSPrivacyCollectedDataTypes:[],NSPrivacyAccessedAPITypes:[{NSPrivacyAccessedAPIType:'NSPrivacyAccessedAPICategorySystemBootTime',NSPrivacyAccessedAPITypeReasons:[process.env.FIXTURE_BAD_API_REASON?'WRONG.1':'35F9.1']}]});
 } else if(tool==='plutil') {
   if(process.env.FIXTURE_INVALID_PLIST) { console.error('Simulated invalid plist'); process.exit(1); }
@@ -66,7 +68,7 @@ function fixture(extra = {}) {
   const repo = path.join(root, 'repo'), work = path.join(root, 'work'), bin = path.join(root, 'bin');
   mkdirSync(path.join(repo, 'scripts'), { recursive: true }); mkdirSync(bin);
   copyFileSync(productionScript, path.join(repo, 'scripts/build-ios.mjs'));
-  for (const name of ['DirectCore', 'DirectCapture']) {
+  for (const name of ['DirectCore', 'DirectCapture', 'TeslaBLE']) {
     mkdirSync(path.join(repo, 'ios', name), { recursive: true });
     writeFileSync(path.join(repo, 'ios', name, 'Package.swift'), '// simulated fixture');
   }

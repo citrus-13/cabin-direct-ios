@@ -5,7 +5,7 @@ import CryptoKit
 
 /// Callbacks run on a private serial queue. UI consumers must dispatch to the main actor.
 /// startReading requires a previously enrolled Keychain key and never creates one.
-/// Device behavior (including ReplayKit extension CoreBluetooth access) is not verified.
+/// Vehicle behavior is not verified; Cabin uses this only in its foreground host app.
 public final class NativeTeslaMediaClient {
     private let vin: String
     private let keyStore: TeslaKeyStore
@@ -55,7 +55,7 @@ public final class NativeTeslaMediaClient {
     private func beginOnDevice(enroll: Bool) {
         #if canImport(CoreBluetooth)
         do {
-            guard vin.utf8.count == 17, vin.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) }) else {
+            guard TeslaVehicleIdentity.isValidVIN(vin) else {
                 throw TeslaProtocolError.invalidVIN
             }
             let key: CryptoKit.P256.KeyAgreement.PrivateKey

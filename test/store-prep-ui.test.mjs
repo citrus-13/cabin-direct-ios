@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { SCREENSHOT_NAMES } from '../lib/simulator-store-prep.mjs';
 
 // Source-profile checks only. They do not launch Simulator, establish UIKit
 // compilation, generate screenshots or count as physical-device accessibility QA.
@@ -134,15 +135,17 @@ test('public appearance control and About heading expose actual environments wit
   assert.match(ui, /String\(describing: control\.value \?\? ""\)/);
 });
 
-test('XCUITest contract is four genuine navigation checks and nine retained real-UI screenshots', () => {
+test('XCUITest contract is four genuine navigation checks and ten retained real-UI screenshots', () => {
   assert.deepEqual([...ui.matchAll(/func (test\w+)\(/g)].map(match => match[1]), [
     'testLightNavigationAndPrivacy', 'testLyricsModeDoesNotStartBroadcastOrMicrophone', 'testVisibleTextRegionControls', 'testDarkAndAccessibilityNavigation'
   ]);
   const screenshots = [...ui.matchAll(/attach\("([a-z-]+)"/g)].map(match => match[1]);
-  assert.equal(screenshots.length, 9);
+  assert.equal(screenshots.length, 10);
+  assert.deepEqual(screenshots.toSorted(), [...SCREENSHOT_NAMES].toSorted(),
+    'XCTest capture labels and canonical evidence manifest must stay aligned');
   assert.deepEqual(screenshots.toSorted(), [
     'connect-light', 'share-light', 'privacy-light', 'support-light', 'visible-text-controls-light', 'lyrics-light',
-    'help-dark', 'privacy-accessibility', 'support-accessibility'
+    'lyrics-pairing-consent-light', 'help-dark', 'privacy-accessibility', 'support-accessibility'
   ].toSorted());
   assert.match(ui, /XCTAttachment\(screenshot: app\.screenshot\(\)\)/);
   assert.match(ui, /attachment\.lifetime = \.keepAlways/);

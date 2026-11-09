@@ -2,6 +2,15 @@
 // Source attribution and changes: ../../PROVENANCE.md; license: ../../LICENSE-TESLA.
 import Foundation
 
+public enum TeslaVehicleIdentity {
+    /// VIN input is normalized by the UI; protocol callers must supply canonical ASCII.
+    public static func isValidVIN(_ vin: String) -> Bool {
+        vin.utf8.count == 17 && vin.utf8.allSatisfy {
+            (48...57).contains($0) || ((65...90).contains($0) && ![73, 79, 81].contains($0))
+        }
+    }
+}
+
 public enum TeslaMediaTimeUnit: String, Codable, Sendable {
     case milliseconds
     case seconds

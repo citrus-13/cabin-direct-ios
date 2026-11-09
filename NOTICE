@@ -15,6 +15,12 @@ unmodified upstream Apache-2.0 license are preserved in:
 ios/TeslaBLE/PROVENANCE.md
 ios/TeslaBLE/LICENSE-TESLA
 
+The 0.8.0 CabinDirect host integrates this reduced TeslaBLE implementation for
+explicit enrollment and authenticated media reading; it is not research-only
+material in that target. Preserve the attribution, change notices and upstream
+license in distributions containing it. The ReplayKit extension does not use
+vehicle keys or BLE. This notice implies no Tesla affiliation or vehicle grant.
+
 The optional legacy WebRTC product uses stasel/WebRTC 156.0.0. Its complete
 BSD-3-Clause notices, including Google WebRTC attribution, remain in:
 ios/App/ThirdPartyNotices.txt

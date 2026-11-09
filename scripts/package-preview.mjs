@@ -55,7 +55,8 @@ for (const [name, bundle, executable] of [['app', app, 'CabinDirect'], ['extensi
   assertDeviceExecutable(fs.readFileSync(binary));
   run('/usr/bin/otool', ['-hv', binary]);
   const libraries = run('/usr/bin/otool', ['-L', binary]).stdout;
-  requireValue(!/WebRTC|TeslaBLE|CoreBluetooth/.test(libraries), 'Research-only dependency in preview binary');
+  requireValue(!/WebRTC/.test(libraries) && (name === 'app' || !/TeslaBLE|CoreBluetooth/.test(libraries)),
+    'Unapproved dependency or vehicle protocol leaked into broadcast extension');
   const signature = run('/usr/bin/codesign', ['--display', '--verbose=4', bundle], [0, 1]);
   const details = signature.stdout + signature.stderr;
   requireValue(!/Authority=/.test(details) && (signature.status === 1 ? /not signed at all/.test(details) : /Signature=adhoc/.test(details)),

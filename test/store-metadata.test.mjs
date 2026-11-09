@@ -6,6 +6,26 @@ import {auditStoreMetadata} from '../lib/store-metadata.mjs';
 const base = JSON.parse(readFileSync(new URL('../docs/store/metadata.zh-Hans.json', import.meta.url), 'utf8'));
 const clone = () => structuredClone(base);
 const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+test('current listing describes foreground BLE lyrics and retains every external submission blocker', () => {
+  assert.equal(base.version, version);
+  const listing = base.listing.description;
+  for (const disclosure of ['Monitor', '钥匙卡', 'NFC', '不使用麦克风', 'LRCLIB', '时长',
+    '主应用默认钥匙串', '不与投屏扩展共享', '不请求位置', '不解锁', '不使用 Tesla 云端',
+    '请求已发送不代表车辆已接受', '切到后台会停止', '返回不会自动重启',
+    '位置未知时不自动滚动', '超过六秒', 'HTTP 未加密', '实车验证']) {
+    assert.ok(listing.includes(disclosure), 'Missing current BLE disclosure: ' + disclosure);
+  }
+  assert.ok(Object.values(base.evidence).every(value => value === false),
+    'Source changes must not promote external submission evidence');
+  assert.equal(base.pricing, null);
+  assert.equal(base.publisher.public_name, null);
+  assert.equal(base.submission_urls.privacy_policy, null);
+  assert.equal(base.submission_urls.support, null);
+  const reviewer = readFileSync(new URL('../docs/store/REVIEW_NOTES.md', import.meta.url), 'utf8');
+  const candidate = reviewer.split('## Candidate Notes\n\n')[1]?.split('\n## Maintainer gate')[0]?.trim();
+  assert.ok(candidate && Buffer.byteLength(candidate, 'utf8') <= 4000);
+  assert.match(candidate, /Full lyrics review also requires an authorized parked Tesla/);
+});
 test('store draft uses actual UI language, passes limits and preserves external blockers', () => {
   const result = auditStoreMetadata(base, version);
   assert.equal(result.draft_valid, true);

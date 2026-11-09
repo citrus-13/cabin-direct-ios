@@ -251,12 +251,12 @@ async function simulateRunner(options = {}) {
   return { report, calls, files, code: fakeProcess.exitCode, owned, consoleOutput };
 }
 
-test('[SIMULATED RUNNER] successful command flow validates and curates nine screenshots, then deletes only its simulator', async () => {
+test('[SIMULATED RUNNER] successful command flow validates and curates ten screenshots, then deletes only its simulator', async () => {
   const result = await simulateRunner();
   assert.equal(result.report.passed, true); assert.equal(result.report.owned_simulator_deleted, true);
   assert.equal(result.report.simulator_only, true); assert.equal(result.report.physical_iphone_test, false);
   assert.equal(result.report.capture_test, false); assert.equal(result.report.personal_signing, false);
-  assert.equal(result.report.screenshots.length, 9); assert.equal(result.code, 0); assert.equal(result.owned, null);
+  assert.equal(result.report.screenshots.length, 10); assert.equal(result.code, 0); assert.equal(result.owned, null);
   assert.equal([...result.files.keys()].filter(name => name.startsWith('/simulated/out/')).length, SCREENSHOT_NAMES.length + 1);
   assert.equal(result.calls.filter(item => item.args[1] === 'create').length, 1);
   assert.doesNotMatch(JSON.stringify(result.report), /SYNTHETIC_NOT_REAL|\/simulated|11111111/);

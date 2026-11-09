@@ -9,22 +9,23 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const source = file => readFileSync(path.join(root, file), 'utf8');
 
-test('V1 targets include optional music but exclude vehicle protocols and unrelated permissions', () => {
+test('BLE lyrics stays in host; broadcast excludes vehicle protocols and neither target captures microphone', () => {
   const legacy = source('ios/project.yml').split('  CabinDirect:\n')[0];
   assert.equal((legacy.match(/excludes: \[DirectConfiguration.swift, DirectLyrics.swift, DirectMusicClock.swift\]/g) || []).length, 2,
     'Legacy harness targets must not compile Cabin-only helpers without their settings type');
   const project = source('ios/project.yml').split('  CabinDirect:\n')[1].split('\nschemes:')[0];
-  assert.doesNotMatch(project, /TeslaBLE|Bluetooth|Keychain|keychain|WebRTC/);
+  assert.doesNotMatch(project, /TCKeychainAccessGroup|keychain-access-groups|WebRTC/);
   const host = project.split('  DirectBroadcastExtension:\n')[0];
-  assert.match(host, /NSMicrophoneUsageDescription:/);
-  assert.match(host, /UIBackgroundModes: \[audio\]/);
+  assert.match(host, /NSBluetoothAlwaysUsageDescription:/);
+  assert.match(host, /- package: TeslaBLE/);
+  assert.doesNotMatch(host, /NSMicrophoneUsageDescription|UIBackgroundModes|StandaloneBroadcast\/DirectMusic/);
   const extension = project.split('  DirectBroadcastExtension:\n')[1].split('  CabinDirectStorePrepUITests:')[0];
   assert.match(extension, /Shared\/DirectLyrics\.swift/);
   assert.match(extension, /Shared\/DirectMusicClock\.swift/);
   assert.match(extension, /- StandaloneBroadcast/);
   assert.match(host, /Shared\/DirectLyrics.swift/);
   assert.match(host, /Shared\/DirectMusicClock.swift/);
-  assert.doesNotMatch(extension, /NSMicrophoneUsageDescription|UIBackgroundModes/);
+  assert.doesNotMatch(extension, /NSMicrophoneUsageDescription|UIBackgroundModes|TeslaBLE|Bluetooth/);
   assert.equal((project.match(/path: StandaloneWeb/g) || []).length, 2, 'Same receiver is bundled for app demo and extension');
   assert.equal((project.match(/com.apple.security.application-groups:/g) || []).length, 2);
   assert.match(project, /Privacy\/Broadcast\/PrivacyInfo\.xcprivacy/);

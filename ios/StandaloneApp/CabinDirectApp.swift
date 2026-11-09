@@ -110,6 +110,8 @@ struct DirectSetupView: View {
     @StateObject private var lyrics = DirectLyricsMode()
     @State private var displayMode: DirectDisplayMode = .screen
     @State private var showLyricsConsent = false
+    @State private var showTeslaPairingConsent = false
+    @FocusState private var vinFocused: Bool
     @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab = 0
     @State private var acknowledged = false
@@ -150,11 +152,24 @@ struct DirectSetupView: View {
         .tint(.teal)
         .preferredColorScheme(appearanceChoice.colorScheme)
         .sheet(isPresented: $showBroadcast) { broadcastSheet }
-        .alert("开始自动歌词？", isPresented: $showLyricsConsent) {
+        .alert("开始车机歌词？", isPresented: $showLyricsConsent) {
             Button("开始歌词") { lyrics.start(settings: model.settings, consent: true) }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("停车后使用。麦克风将持续听车内音乐，包括离开 App 或锁屏期间（系统允许时）。音频声纹交给 Apple / Shazam，歌名和歌手交给 LRCLIB 获取歌词。不共享屏幕、不保存录音；点停止歌词即关闭麦克风。仅与可信网络内的车机配对，本地 HTTP 未加密。")
+            Text("停车后使用，并保持 Cabin 在前台。通过蓝牙读取 Tesla 当前歌曲的歌名、歌手和播放进度，将歌名、歌手及曲目时长发送至 LRCLIB 获取歌词。不使用麦克风，不启动录屏。本地歌词页面通过未加密 HTTP 发送给已配对浏览器，仅使用可信网络。切到后台会停止此歌词会话。")
+        }
+        .alert("配对 Tesla？", isPresented: $showTeslaPairingConsent) {
+            Button("同意并请求配对") {
+                // Pairing may originate in Settings while Screen is selected.
+                // Keep its status and cancellation reachable on the lyrics home.
+                displayMode = .lyrics
+                selectedTab = 0
+                lyrics.pairTesla(consent: true)
+            }
+                .accessibilityIdentifier("tesla.pair.confirm")
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确认后才会在本机创建配对密钥，并向这辆 Tesla 请求只读 Monitor 授权。车辆授予的 Monitor 权限范围比歌曲信息更广；Cabin 仅请求媒体数据，不请求位置、不解锁或启动车辆，不发送车辆控制指令。可能需要在车内使用钥匙卡或 NFC 确认。发出请求不代表配对成功，请根据车内提示与下方状态确认。VIN 和密钥留在本机，不登录 Tesla 账号，不使用 Tesla 云端或 OAuth。")
         }
         .onOpenURL { url in
             guard !settingsLocked, let track = DirectTrackImport.parse(url) else {
@@ -177,7 +192,7 @@ struct DirectSetupView: View {
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { model.refresh() }
-            if phase == .background && lyrics.preparing { lyrics.stop(reason: "请回到 Cabin 再开始歌词。") }
+            if phase == .background { lyrics.onBackground() }
             // Never stop the real ReplayKit extension merely because this app backgrounds.
         }
         .onChange(of: model.settings) { _ in
@@ -273,23 +288,27 @@ struct DirectSetupView: View {
         Section {
             VStack(alignment: .leading, spacing: 14) {
                 Image(systemName: "music.note").font(.system(size: 42)).foregroundStyle(.teal)
-                Text("只听歌，只看歌词").font(.title2.bold())
+                Text("车里播放，这里看歌词").font(.title2.bold())
                     .accessibilityIdentifier("lyrics.headline")
-                Text("自动听车内播放的音乐，不用录屏，也不用输入歌名。")
+                Text("通过蓝牙读取 Tesla 当前歌曲，不使用麦克风，也不启动录屏。停车后使用，并保持 Cabin 在前台。")
                     .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("lyrics.source-guidance")
                 Text(lyrics.message).font(.callout).foregroundStyle(.secondary)
                     .accessibilityIdentifier("lyrics.status")
             }.padding(.vertical, 12)
             if lyrics.busy {
-                Button(lyrics.stopping ? "正在停止…" : "停止歌词", role: .destructive) { lyrics.stop() }
+                Button(lyrics.stopping ? "正在停止…" : lyrics.pairing ? "取消配对请求" : "停止歌词", role: .destructive) { lyrics.stop() }
                     .disabled(lyrics.stopping).accessibilityIdentifier("lyrics.stop")
             } else {
-                Button { showLyricsConsent = true } label: {
+                Button { vinFocused = false; showLyricsConsent = true } label: {
                     Label("开始歌词", systemImage: "music.note")
                         .font(.headline).frame(maxWidth: .infinity, minHeight: 34)
-                }.buttonStyle(.borderedProminent).disabled(model.active || model.stopPending)
+                }.buttonStyle(.borderedProminent).disabled(model.active || model.stopPending || !lyrics.validVIN)
                     .accessibilityIdentifier("lyrics.start")
             }
+        }
+        Section("连接你的 Tesla") {
+            teslaPairingControls
         }
         if let music = lyrics.music, !music.title.isEmpty {
             Section {
@@ -326,11 +345,38 @@ struct DirectSetupView: View {
         }
         Section {
             DisclosureGroup("如何使用") {
-                Text("车机连接手机热点，或与手机连接同一 Wi-Fi。开始歌词后，在车机打开地址并输入配对码。")
-                Text("需要让手机听见车内扬声器的音乐。静音、耳机、噪声或曲库未收录时可能识别不到。换曲会自动再识别，不读取音乐 App 的账号或播放控制。")
-                Text("歌词进度依据识曲结果估算，不保证逐字同步。来电、音频或网络变化可能停止听歌；请只在停车时操作。")
-                Text("支持情况由识曲和歌词曲库决定，不保证每个平台的每首歌都能匹配。")
+                Text("首次填写车辆 VIN，点“配对 Tesla”并在车内确认只读授权。这个车辆密钥与网页配对码不同；发出配对请求不代表车辆已经接受。")
+                Text("车机连接手机热点，或与手机连接同一 Wi-Fi。开始歌词后，在车机打开固定入口，填写本地地址并输入网页配对码。")
+                Text("歌曲来自车辆通过蓝牙提供的媒体数据，不靠听歌识别。车辆或音源未提供歌曲信息时无法匹配；不读取音乐 App 账号，不控制播放。")
+                Text("保持 Cabin 在前台。进入后台会停止本次歌词会话；重新回到 App 后需要手动开始，不承诺锁屏持续运行。蓝牙、网络或车辆状态变化可能中断连接。")
+                Text("歌词由 LRCLIB 提供，匹配覆盖和进度可能有偏差，不保证每首歌都有歌词或逐字同步。")
             }.font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
+    private var teslaPairingControls: some View {
+        Group {
+            TextField("17 位车辆 VIN", text: $lyrics.vin)
+                .font(.system(.body, design: .monospaced))
+                .keyboardType(.asciiCapable)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .submitLabel(.done)
+                .focused($vinFocused)
+                .onSubmit { vinFocused = false }
+                .disabled(settingsLocked)
+                .accessibilityLabel("车辆 VIN")
+                .accessibilityIdentifier("tesla.vin")
+            Text("填写 17 位英文字母和数字，不含 I、O、Q。VIN 用于连接你的车辆，不会发送给歌词服务。")
+                .font(.footnote).foregroundStyle(.secondary)
+            Button(lyrics.pairing ? "等待车辆确认…" : "配对 Tesla") {
+                vinFocused = false
+                showTeslaPairingConsent = true
+            }
+            .disabled(settingsLocked || !lyrics.validVIN)
+            .accessibilityIdentifier("tesla.pair")
+            Text("仅首次或车辆已移除 Cabin 密钥时需要配对；每次开始歌词仍需单独确认。")
+                .font(.footnote).foregroundStyle(.secondary)
         }
     }
 
@@ -412,7 +458,7 @@ struct DirectSetupView: View {
                     Text("开启后将歌名和歌手发送至 LRCLIB，歌词显示给已配对设备。只用于你有权使用的内容。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-            } header: { Text("投屏时的音乐") } footer: { Text("仅用于投屏模式。歌词模式自动听歌，不需要手动填写。") }
+            } header: { Text("投屏时的音乐") } footer: { Text("仅用于投屏模式。独立歌词模式通过蓝牙读取 Tesla 歌曲，不使用此处的识曲选项。") }
             .disabled(settingsLocked)
 
             Section("画面") {
@@ -427,6 +473,14 @@ struct DirectSetupView: View {
                 }
             }.disabled(settingsLocked)
 
+            Section("Tesla 歌词连接") {
+                DisclosureGroup("车辆与配对") {
+                    teslaPairingControls
+                    Text(lyrics.message).font(.footnote).foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("setting.tesla-connection")
+            }
+
             Section {
                 NavigationLink { DirectPrivacyStatementView() } label: {
                     Label("隐私说明", systemImage: "hand.raised")
@@ -436,7 +490,7 @@ struct DirectSetupView: View {
                 }.accessibilityIdentifier("help.support")
             }
             if settingsLocked {
-                Section { Text("停止投屏后可以修改设置。").font(.footnote).foregroundStyle(.secondary) }
+                Section { Text("停止投屏、歌词或配对请求后可以修改设置。").font(.footnote).foregroundStyle(.secondary) }
             }
             if let actionNotice {
                 Section { Text(actionNotice).font(.footnote).foregroundStyle(.secondary) }
@@ -617,13 +671,18 @@ private struct DirectPrivacyStatementView: View {
                     .foregroundStyle(.secondary).accessibilityIdentifier("privacy.http-warning")
                 Text("配对码不等于加密。不要公开地址或配对码，也不要将服务开放到公网。")
             }
-            Section("识曲和歌词") {
-                Text("两项功能都不会自动启动。歌词模式需要你确认后使用麦克风持续听歌，不共享屏幕、不保存录音；音频声纹交给 Apple / Shazam，歌名和歌手发送至 LRCLIB。停止后关闭麦克风。投屏模式中的识曲与歌词仍单独选择。")
-                Text("不会读取音乐账号或车辆数据。识曲、歌词覆盖和同步精度取决于音源与服务；只使用你有权使用的歌词。")
+            Section("Tesla 歌词与车辆配对") {
+                Text("独立歌词模式不使用麦克风、不启动录屏。只有你分别确认车辆配对和开始歌词，才会执行对应操作；打开 App、切换模式或填写 VIN 都不会自动配对或读取车辆。")
+                Text("确认配对或开始歌词后，VIN 才会保存在本机设置中；配对密钥在确认配对后创建并保存在本机钥匙串，不发送给 LRCLIB。不登录 Tesla 账号，不使用 Tesla 云端或 OAuth。车辆授予的是只读 Monitor 权限，其范围比媒体数据更广；Cabin 的请求白名单仅包含媒体信息，不请求位置、不发送解锁、启动或其他车辆控制指令。")
+                Text("开始歌词后，将车辆歌曲的歌名、歌手和曲目时长发送给 LRCLIB 获取歌词，歌词与播放信息显示给已配对的本地浏览器。不读取音乐账号。停止后结束蓝牙读取与歌词页面会话；在车辆中移除 Cabin 密钥可撤销车辆授权。")
+                Text("需要保持 Cabin 在前台；进入后台会停止独立歌词会话，返回后不会自动重新开始。不保证锁屏或后台持续运行。歌曲数据、歌词覆盖和同步精度取决于车辆、音源与服务；只使用你有权使用的歌词。")
+            }
+            Section("投屏时的识曲") {
+                Text("投屏模式中的识曲与歌词需另行选择。自动识曲使用系统允许的应用音频声纹，通过 Apple / Shazam 匹配，不使用麦克风；开启获取歌词后，将曲目资料发送给 LRCLIB。此设置不影响独立 Tesla 歌词模式。")
             }
             Section("保存与停止") {
                 Text("设置和最后运行状态保存在本机。画面、识曲结果和歌词只保留本次会话需要的最新内容，不自动上传诊断信息。")
-                Text("只有点复制才会写入本机剪贴板，内容两分钟后过期且不参与通用剪贴板。配对凭据随会话失效。")
+                Text("只有点复制才会写入本机剪贴板，内容两分钟后过期且不参与通用剪贴板。网页配对凭据随会话失效；Tesla 车辆配对密钥单独保留，不会随歌词会话结束而撤销。")
                 Text("固定入口由免费的 GitHub Pages 托管，仅跳转到你确认的本地地址，不中转媒体。选记住后地址保存在车机浏览器，可随时忘记；GitHub 会记录普通网页访问信息。地址变化需更新，新会话仍需配对。")
                 Text("退出 App 不会替你停止系统投屏。请用停止按钮或 iPhone 顶部录屏标记结束；锁屏或系统限制可能中断投屏。")
             }

@@ -1,55 +1,60 @@
 # Cabin Direct — help and support preparation
 
-This is self-help for 0.7.0 development source, not a staffed support service or finalized App Store Support URL. Publisher name/contact remain unconfirmed; no private-report channel or response time is promised. Do not post personal information. Earlier preview downloads do not acquire the independent acoustic mode through these instructions; verify the actual app/build first.
+This is self-help for the **0.8.0 development target**, not a staffed support service, installed-release announcement or finalized App Store Support URL. Publisher/contact remain unconfirmed. Older downloads do not acquire new BLE functionality through these instructions; check the actual app/build first.
 
-## Choose a mode
+## Tesla lyrics — first use
 
-**首页 → 歌词 → 开始歌词:** read the per-session microphone/provider notice and allow iOS microphone access. Let the iPhone hear music from car speakers or another audible source. No recording-screen picker is needed and no screen frames are shared. The host tries to identify the song through Apple/Shazam and obtains candidate lyrics from LRCLIB. Start and Stop are explicit; selecting a mode alone does nothing. Free Personal Team service admission is unproven, so automatic recognition may be unavailable even if the app builds or installs.
+1. Park safely, keep Cabin in the foreground and allow the phone to be near your authorized Tesla.
+2. Open **首页 → 歌词** and enter its 17-character VIN (ASCII letters/digits, excluding I/O/Q). Typing alone neither saves the VIN nor contacts a vehicle.
+3. Choose **配对 Tesla** and read the separate confirmation. Only confirming creates a host-local key if needed and requests read-only Monitor enrollment. Monitor's vehicle-granted scope is broader than media; Cabin requests only media fields, not location or vehicle controls. Follow the vehicle's keycard/NFC instructions if required.
+4. Wait for the actual status. Request sent is not proof of vehicle acceptance. Do not repeatedly enroll while a request is pending.
+5. Choose **开始歌词** and separately consent to LRCLIB lookup using current-track title, artist and duration. This reads authenticated vehicle media data without microphone, screen recording, Tesla login/cloud/OAuth or a paid API.
 
-**首页 → 投屏 → 开始投屏:** settings are validated/saved, then you acknowledge the notice and personally confirm the real iOS broadcast picker. Display only permitted, non-sensitive visible content. Optional screen music and lyric access are separate default-OFF settings, using ReplayKit app audio only, not the microphone. Manual/Shortcut import creates a draft, keeps lyric networking OFF and never starts capture.
+The VIN can also be edited under **设置 → 车辆与配对** when idle. VIN persistence occurs only after explicit valid pairing/start consent. Vehicle keys stay in the host's default Keychain, not the broadcast extension. Remove Cabin's key in the vehicle to revoke authorization; stopping lyrics does not revoke enrollment.
 
-The two modes are mutually exclusive. **设置** holds screen music, lyric and OCR options, privacy and About. The original development sample and diagnostic screens are not ordinary app workflows. No new subscription, paid API or account upgrade is required by these instructions, and failure does not authorize a purchase.
+## Screen sharing remains separate
 
-## Connect safely
+Use **首页 → 投屏 → 开始投屏**, review the notice and personally start the iOS broadcast picker. Display only permitted, non-sensitive content. Optional screen recognition/lyrics are separate default-OFF settings using ReplayKit app audio, never microphone input. Manual/Shortcut imports fill a draft without granting lyric access or starting capture.
 
-Use a trusted Wi-Fi/hotspot. For this iPhone's Personal Hotspot, connect the receiver first; for another hotspot/Wi-Fi, connect both devices. Mutual reachability is necessary: the same network name alone proves nothing. Guest isolation, VPN routing and browser policy can block access. Cabin does not change your VPN, invent hotspot addresses, scan networks, open public ports or use a developer relay.
+The modes are mutually exclusive. Selecting a tab/mode alone starts nothing. Settings also contains screen OCR, privacy and About. No purchase, subscription, paid fallback, VPN change or account upgrade is authorized by troubleshooting.
 
-The fixed entry `https://citrus-13.github.io/cabin-direct-ios/` remembers an address only after you confirm it. Next time it can navigate automatically; cancel or use `?setup=1` to edit, and Forget to clear the saved address. It does not discover a changed IP, bypass pairing or carry media. A public-page load needs internet access; use the phone address directly when offline.
+## Connect the lyric or screen webpage
 
-An observed local address may be previewed/bookmarked while the mode is stopped, but is marked inactive; no page is served until a session starts. No eligible interface means guidance instead of a guessed/old address. After starting, use the current address and separate six-digit pairing code within 120 seconds; five wrong attempts are allowed. Codes are not embedded in URLs. Check a bookmark still matches the current address.
+Use a trusted Wi-Fi/hotspot. Connect the receiver to this iPhone's hotspot, or put both devices on the same network. Guest isolation, VPN routing and browser rules can prevent access; the same network name is not proof of reachability.
 
-IPv4 is preferred; eligible IPv6 addresses can also be used. Screen mode offers collapsed alternative addresses. Interface filtering is not a firewall or proof of connectivity. A changed eligible interface/address set ends the session; inspect the new trusted network, explicitly restart and pair again. Physical hotspot/Wi-Fi and vehicle-browser acceptance are still required. **HTTP is unencrypted**, so never expose the listener publicly.
+The fixed entry `https://citrus-13.github.io/cabin-direct-ios/` remembers only an address you confirm. Cancel navigation or use `?setup=1` to edit, and Forget to clear it. It does not discover changed addresses, bypass pairing or relay media. Direct local phone URLs remain an alternative if public-page access fails.
 
-## Listening, playback and stopping
+A preview address before start is not a live listener. After starting, use the current address and separate six-digit **web pairing code** within 120 seconds; five wrong attempts are allowed. This code is not your Tesla vehicle key. Network/address changes end the session; inspect the trusted network and explicitly start/web-pair again. **Local HTTP is unencrypted**: never expose the listener publicly.
 
-Lyrics listens through the phone's built-in microphone, not the car microphone or a private music-account API. It requests mixing without ducking and A2DP eligibility; actual Bluetooth/player coexistence must be verified on the target phone. Music must be audible nearby: headphones, mute, noise and catalog gaps may prevent matching.
+## Playback and stopping
 
-A genuine user-started microphone session may continue after leaving or locking Cabin. Explicitly stop when finished. Background/lock reliability is unverified; there is no silent-audio keepalive or automatic restart. Stop Lyrics closes the microphone, cancels recognition/lyric work and ends the local session. Calls, audio-route/network changes, expiry or service failure can stop it too.
+Lyrics follows media information the vehicle actually provides. Unknown playback state/position does not scroll. Known pause freezes progress, seek/track updates reset it, and metadata older than six seconds is hidden. Missing lyrics or a different recording version may prevent matching or accurate timing.
 
-Stop Screen Sharing waits for matching-extension cleanup; iOS recording controls can also end capture. Backgrounding Cabin does not itself stop ReplayKit. Heartbeat timeout or releasing a waiting UI is not proof capture ended. The browser can disconnect locally without stopping either source mode. Normal stop does not erase saved preferences or receiver copies.
+Keep Cabin foregrounded. It temporarily keeps the display awake only during a user-started foreground lyric session and restores the previous setting on stop. Moving to background stops that session; returning does not restart it. No background or lock-screen continuity is promised. Stop ends BLE reading, lyric work and the local listener, not the vehicle's original music playback.
+
+Screen sharing is different: backgrounding the host does not itself stop the ReplayKit extension. Use Stop Screen Sharing or iOS recording controls. A heartbeat timeout or released UI wait is not confirmed capture termination.
 
 ## Common problems
 
 | Symptom | Safe check |
 | --- | --- |
-| No address/page | Connect the devices, check local-network permission and start the intended mode. A preview address is not a live listener. Do not expose the port publicly. |
-| Pairing failed/expired | Five wrong attempts and a 120-second initial window apply. Stop/start a new session instead of guessing. |
-| Microphone denied | Allow Cabin microphone access in iOS settings if you want acoustic recognition; otherwise leave Lyrics stopped. Screen sharing does not require this microphone path. |
-| Lyrics waiting/no match | Make nearby music audible and check noise/catalog limitations. Silence or callbacks are not recognition proof; no lyrics are invented. |
-| Recognition unavailable | Network, provider or current signing/service admission may fail. Microphone mode stops safely. Do not buy membership or add a fake entitlement; see [music limits](MUSIC.md). |
-| Lyrics absent/timing wrong | A candidate recording may have no timed lyrics or be a different version. Offsets are estimates, not another player's live pause/seek state. |
-| Black/no screen image | This is expected in Lyrics mode. In Screen mode check system broadcast state and permitted content; protected content is not bypassed. |
-| Old/blank content | Freshness/disconnect rules intentionally hide old content. A heartbeat does not prove browser/vehicle receipt. |
-| Network/audio route changed | The session may stop. Inspect the intended trusted network and playback/input route, then explicitly restart. |
-| Screen stop waits | Check/end capture with iOS recording controls. UI-only recovery is not confirmed termination. |
-| Installation expired | Personal Team provisioning is time-limited. See [signing](INSTALL.md); do not buy anything merely to troubleshoot. |
+| Pair button disabled | Check the 17-character VIN and that no lyrics, pairing or broadcast operation is busy. |
+| Vehicle request sent, no success | Check the actual vehicle confirmation/keycard/NFC flow while parked. Request delivery is not enrollment. Do not infer accepted permissions. |
+| No vehicle media | Check Bluetooth permission/range, existing enrollment and actual vehicle support. Monitor media access, firmware and music-source coverage remain physical acceptance gates. |
+| No page/address | Join a trusted network, check local-network permission and explicitly start. A preview address is not a listener. |
+| Web code expired | Restart the webpage session instead of guessing; vehicle enrollment is separate and need not be repeated solely for an expired web code. |
+| Lyrics freeze or disappear | Unknown/stale metadata is intentionally not extrapolated. Check actual song data, BLE connection and foreground state. |
+| Wrong lyrics/timing | A candidate recording may differ or have no timed lyrics. Do not assume exact synchronization or universal platform support. |
+| Lyrics stop on leaving/locking | Expected foreground-only lifecycle. Return to Cabin and explicitly start when ready. |
+| Optional screen recognition unavailable | Service/signing/network admission can fail. No purchase or invented entitlement is a supported fallback. |
+| Black/no screen image | Expected in Lyrics mode. For Screen mode, check real recording state and content permission; DRM is not bypassed. |
+| Screen stop waits | Check/end capture with iOS recording controls; UI recovery alone does not prove termination. |
+| Installation expired | Personal signing is separate and time-limited; see [signing guidance](INSTALL.md). Do not buy anything automatically. |
 
-## Data choices and future reports
+## Data and evidence
 
-No diagnostic exports or automatic diagnostic uploads are provided. Consented Shazam/LRCLIB processing is different: signatures go to Apple/Shazam and title/artist to LRCLIB, not raw audio or screens. No audio recording files are created. Acoustic lyrics never relays audio. Screen mode uses a shared H.264/AAC timeline with an explicit receiver sound button; unsupported browsers retain picture-only JPEG. Do not enable both receiver audio and another audible output if that produces echo. Read the [privacy draft](PRIVACY.md) for retention and provider boundaries.
+The app has no automatic diagnostic upload or home diagnostic dashboard. LRCLIB receives consented current-track metadata; optional screen Shazam receives audio signatures. Neither receives VIN, vehicle keys, raw audio or screenshots. BLE lyrics relays no audio; screen mode may relay permitted H.264/AAC with an explicit browser sound button and picture-only fallback.
 
-A future report can include app/build version from 设置 → 关于 Cabin, iOS/browser version and non-sensitive reproduction steps. Never send pairing codes, tokens, private screens, profiles, Apple passwords or device identifiers. Do not claim phone/vehicle success from a simulator or compile.
+Report only app/build/iOS/browser/vehicle firmware versions and non-sensitive reproduction steps through an authorized channel. Do not post VIN, keys, pairing codes/tokens, private screens, profiles, Apple credentials or device identifiers.
 
-## Publisher action before submission
-
-Supply an authorized public identity, monitored contact, final policy/support URLs and verify access. No private email is substituted. Verify final privacy labels, lyric rights and the exact signed app's behavior; this page alone does not satisfy those gates.
+At this update, 46 local offline protocol/clock checks are reported passed; exact 0.8.0 iOS/cloud/UI checks and real phone/parked-car acceptance remain pending. No simulator, successful compilation or prior release establishes installation, vehicle compatibility or App Store approval. Publisher identity/contact, final URLs, privacy labels and lyric rights remain separate submission gates.

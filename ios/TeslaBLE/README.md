@@ -6,23 +6,28 @@ service, account, SDK download or external package dependency. CryptoKit supplie
 P-256 ECDH, SHA-1/SHA-256, HMAC-SHA256 and AES-GCM; no custom cryptographic primitive
 is implemented.
 
-## Verification status (2026-11-04)
+## Integration and verification status (2026-11-09)
+
+Cabin 0.8.0 now links this package in the foreground host app's independent
+lyrics mode. The ReplayKit extension does not link it or access vehicle keys.
+Current integration adds a bounded playback clock and explicit UI enrollment;
+build and offline checks do not establish successful vehicle operation.
 
 - **Passed:** native macOS build with Apple Swift 6.3.2 and the installed Command
   Line Tools SDK, including the CoreBluetooth transport implementation and client
   connection code (compiled, never executed against Bluetooth).
-- **Passed:** 36 native offline check cases, including exact official public ECDH,
+- **Historical baseline passed (2026-11-04):** 36 native offline check cases, including exact official public ECDH,
   session-HMAC, metadata/AES-GCM and advertisement vectors; official ECDH
   leading-zero fixture; synthesized read-only encrypted request/response and
   negative association/replay/tamper/overflow/truncation tests.
 - **Passed, syntax only:** iOS conditional-source parsing using
   `swiftc -frontend -parse -target arm64-apple-ios16.0`. The tool warns that the
   available sysroot is macOS. This is **not** an iOS build or link check.
-- **Unavailable here:** XCTest (`no such module XCTest` in Command Line Tools),
-  full Xcode/iOS SDK, signing, shared Keychain entitlement/provisioning,
+- **Unavailable locally:** XCTest (`no such module XCTest` in Command Line Tools),
+  full Xcode/iOS SDK and current-version signing,
   Bluetooth permission/device testing, Vehicle Monitor enrollment/NFC approval,
-  actual media availability/units, and CoreBluetooth operation from a ReplayKit
-  upload extension. The native checks are an explicitly labelled command-line
+  and actual media availability/units. Shared vehicle Keychain and extension BLE
+  are not part of the 0.8.0 integration. The native checks are an explicitly labelled command-line
   assertion runner, not XCTest.
 - No private production key was created, no Keychain item was read/written by
   checks, no CBCentralManager was instantiated, no scan or vehicle action was
@@ -35,8 +40,8 @@ checks pass. No fabricated track or success fallback exists.
 
 ```swift
 let store = TeslaKeyStore(
-    accessGroup: provisionedKeychainAccessGroup,
-    tag: "tesla-media.\(vin)"
+    accessGroup: nil, // This host app's default Keychain group, not the extension.
+    tag: "vehicle-monitor.\(vin)"
 )
 let reader = NativeTeslaMediaClient(
     vin: vin,
@@ -57,7 +62,7 @@ playback enum values, negative/overflowing timing and absent media are rejected.
 No stale fields are merged from an earlier response. Callbacks execute on the
 client's private serial queue; dispatch UI updates to the main actor.
 
-The active broadcast reader should own the client and call `stop()` on pause/end.
+The foreground lyrics host owns the client and calls `stop()` on background/end.
 The app may create a separate client with `allowEnrollment: true` **only for a
 fresh user-confirmed enrollment action**, then call
 `enrollMonitorKeyExplicitly()`. That path creates a new P-256 key only if none
@@ -72,11 +77,9 @@ their NFC card and the vehicle UI. An existing local key (`try store.hasKey()`)
 does not establish that the vehicle enrolled it. Only a subsequent authenticated
 session and successfully decrypted media response establish those stages.
 
-Both executing targets need appropriate Bluetooth usage descriptions. Shared
-Keychain storage requires a separately provisioned **Keychain access group**;
-App Groups alone do not share keys. Read `TCKeychainAccessGroup` from the host's
-configuration and pass it through; do not substitute an App Group identifier.
-Use a VIN-specific tag consistently in app and extension. Keys use
+Only the host app declares a Bluetooth usage description. The host uses
+`accessGroup: nil` with a VIN-specific tag. Do not add shared Keychain groups or
+pass vehicle keys to the extension; App Groups do not share Keychain keys. Keys use
 `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`, are non-synchronizing, and
 have no public export API. These are Keychain-backed software keys, not a claim
 of Secure Enclave/nonextractable hardware storage. The package never logs raw

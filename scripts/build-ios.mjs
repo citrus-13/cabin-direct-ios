@@ -88,6 +88,7 @@ function validatePrivacy(file, expectedAPIs, label) {
     'Unexpected privacy declaration; review actual data and API behavior before changing it');
 }
 const capturePrivacyReasons = [{ NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime', NSPrivacyAccessedAPITypeReasons: ['35F9.1'] }];
+const hostPrivacyReasons = [...capturePrivacyReasons, { NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults', NSPrivacyAccessedAPITypeReasons: ['CA92.1'] }];
 function validateProject() {
   const pbx = plist(path.join(project, 'project.pbxproj'), 'validate-project-pbx');
   const objects = pbx.objects;
@@ -99,13 +100,13 @@ function validateProject() {
   requireValue(app?.productType === 'com.apple.product-type.application', 'CabinDirect application target missing');
   requireValue(broadcast?.productType === 'com.apple.product-type.app-extension', 'DirectBroadcastExtension target missing');
   requireValue(existsSync(path.join(project, 'xcshareddata/xcschemes/CabinDirect.xcscheme')), 'CabinDirect shared scheme missing');
-  for (const name of ['DirectCore', 'DirectCapture']) {
+  for (const name of ['DirectCore', 'DirectCapture', 'TeslaBLE']) {
     const expected = path.join(repo, 'ios', name);
     requireValue((root.packageReferences || []).some(id => objects[id]?.isa === 'XCLocalSwiftPackageReference' &&
       path.resolve(repo, 'ios', objects[id].relativePath || '') === expected), `Local package reference is not canonical: ${name}`);
     requireValue(existsSync(path.join(expected, 'Package.swift')), `Missing local package manifest: ${name}`);
   }
-  for (const [target, allowed] of [[app, ['DirectCore']], [broadcast, ['DirectCore', 'DirectCapture']]]) {
+  for (const [target, allowed] of [[app, ['DirectCore', 'TeslaBLE']], [broadcast, ['DirectCore', 'DirectCapture']]]) {
     const products = (target.packageProductDependencies || []).map(id => objects[id]?.productName).sort();
     requireValue(JSON.stringify(products) === JSON.stringify(allowed.sort()), `Unexpected package products in ${target.name}`);
     const resources = (target.buildPhases || []).map(id => objects[id]).filter(phase => phase?.isa === 'PBXResourcesBuildPhase')
@@ -130,15 +131,15 @@ function validateProject() {
     requireValue(info.CFBundleShortVersionString === '$(MARKETING_VERSION)' &&
       info.CFBundleVersion === '$(CURRENT_PROJECT_VERSION)', 'V1 generated version must resolve from build settings');
     requireValue(typeof info.NSLocalNetworkUsageDescription === 'string' && info.NSLocalNetworkUsageDescription.length > 20, 'Local network explanation missing');
-    requireValue(!info.NSBluetoothAlwaysUsageDescription && !info.NSBluetoothPeripheralUsageDescription && !info.TCKeychainAccessGroup,
-      'Vehicle/Bluetooth/shared Keychain configuration must not be present in V1');
+    requireValue(!info.NSBluetoothPeripheralUsageDescription && !info.TCKeychainAccessGroup,
+      'No Bluetooth peripheral role or shared vehicle Keychain group');
     if (info === appInfo) {
-      requireValue(JSON.stringify(info.UIBackgroundModes) === JSON.stringify(['audio']) &&
-        typeof info.NSMicrophoneUsageDescription === 'string' && info.NSMicrophoneUsageDescription.length > 30,
-        'Lyrics mode must explain microphone use and request only legitimate audio background mode');
+      requireValue(!info.UIBackgroundModes?.length && !info.NSMicrophoneUsageDescription &&
+        typeof info.NSBluetoothAlwaysUsageDescription === 'string' && info.NSBluetoothAlwaysUsageDescription.length > 30,
+        'Foreground lyrics requires Bluetooth explanation, no microphone or background mode');
     } else {
-      requireValue(!info.UIBackgroundModes?.length && !info.NSMicrophoneUsageDescription,
-        'Screen extension must not request microphone or background modes');
+      requireValue(!info.UIBackgroundModes?.length && !info.NSMicrophoneUsageDescription && !info.NSBluetoothAlwaysUsageDescription,
+        'Screen extension must not request Bluetooth, microphone or background modes');
     }
   }
   for (const entitlements of [appEntitlements, extensionEntitlements]) {
@@ -153,7 +154,7 @@ function validateProject() {
     extension?.RPBroadcastProcessMode === 'RPBroadcastProcessModeSampleBuffer' &&
     extension?.NSExtensionPrincipalClass?.endsWith('.DirectSampleHandler'), 'ReplayKit sample-buffer configuration invalid');
   for (const [file, expectedAPIs] of [
-    ['PrivacyInfo.xcprivacy', capturePrivacyReasons],
+    ['PrivacyInfo.xcprivacy', hostPrivacyReasons],
     ['Privacy/Broadcast/PrivacyInfo.xcprivacy', capturePrivacyReasons]
   ]) {
     validatePrivacy(path.join(repo, 'ios', file), expectedAPIs, 'validate-privacy-' + (expectedAPIs.length ? 'broadcast' : 'app'));
@@ -212,7 +213,7 @@ if (!execute('generate-project', 'xcodegen', ['--spec', 'ios/project.yml', '--pr
       let privacyError = '';
       if (build.ok && report.unsigned_product_present) {
         try {
-          validatePrivacy(path.join(app, 'PrivacyInfo.xcprivacy'), capturePrivacyReasons, 'validate-packaged-app-privacy');
+          validatePrivacy(path.join(app, 'PrivacyInfo.xcprivacy'), hostPrivacyReasons, 'validate-packaged-app-privacy');
           validatePrivacy(path.join(extension, 'PrivacyInfo.xcprivacy'), capturePrivacyReasons, 'validate-packaged-extension-privacy');
           report.packaged_privacy_manifests_verified = true;
         } catch (error) { privacyError = error.message; }

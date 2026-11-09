@@ -2,8 +2,8 @@ import Foundation
 import CryptoKit
 import Security
 
-/// App and extension must use the SAME provisioned Keychain access group and VIN-specific tag.
-/// App Groups and Keychain access groups are different entitlements. Nothing is stored in files.
+/// Cabin 0.8 uses this only in the host app with accessGroup:nil and a VIN-specific tag.
+/// Keys are NOT shared with ReplayKit. Explicit shared groups require separate provisioning.
 public final class TeslaKeyStore {
     private let service: String
     private let accessGroup: String?

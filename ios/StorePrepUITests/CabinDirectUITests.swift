@@ -33,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.7.0（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.8.0（构建 1）")
         attach("support-light", from: app)
     }
 
@@ -46,17 +46,60 @@ final class CabinDirectUITests: XCTestCase {
         selector.buttons["歌词"].tap()
         XCTAssertTrue(element("lyrics.headline", in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(element("lyrics.start", in: app).exists)
+        XCTAssertFalse(element("lyrics.start", in: app).isEnabled, "A VIN is required before starting")
+        let guidance = element("lyrics.source-guidance", in: app)
+        XCTAssertTrue(guidance.label.contains("通过蓝牙读取 Tesla"))
+        XCTAssertTrue(guidance.label.contains("不使用麦克风"))
+        XCTAssertTrue(guidance.label.contains("保持 Cabin 在前台"))
         XCTAssertFalse(element("action.system-broadcast-picker", in: app).exists)
         XCTAssertFalse(element("lyrics.stop", in: app).exists)
         attach("lyrics-light", from: app)
-        // Inspect the real pre-permission alert, then cancel. Never grant the
-        // microphone, invoke Shazam, or start a network listener in UI evidence.
-        tap("lyrics.start", in: app)
-        XCTAssertTrue(app.alerts["开始自动歌词？"].waitForExistence(timeout: 5))
-        app.alerts.buttons["取消"].tap()
+
+        let vin = app.textFields["tesla.vin"]
+        reveal(vin, identifier: "tesla.vin", in: app)
+        XCTAssertEqual(vin.value as? String, "17 位车辆 VIN", "Use only a fresh Simulator without a saved vehicle")
+        vin.tap()
+        vin.typeText("INVALID\n")
+        let pair = element("tesla.pair", in: app)
+        reveal(pair, identifier: "tesla.pair", in: app)
+        XCTAssertFalse(pair.isEnabled, "Invalid VIN must not enable pairing")
+        reveal(vin, identifier: "tesla.vin", in: app)
+        vin.tap()
+        vin.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 7))
+        vin.typeText("5YJ3E1EA7HF000000\n") // Synthetic input; never submit to a vehicle.
+        reveal(pair, identifier: "tesla.pair", in: app)
+        XCTAssertTrue(pair.isEnabled)
+        tap("tesla.pair", in: app)
+        let pairingAlert = app.alerts["配对 Tesla？"]
+        XCTAssertTrue(pairingAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(pairingAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Monitor 权限范围比歌曲信息更广")).firstMatch.exists)
+        XCTAssertTrue(pairingAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "发出请求不代表配对成功")).firstMatch.exists)
+        XCTAssertTrue(pairingAlert.buttons["同意并请求配对"].exists)
+        attach("lyrics-pairing-consent-light", from: app)
+        pairingAlert.buttons["取消"].tap()
         XCTAssertFalse(element("lyrics.stop", in: app).exists)
+
+        // Inspect and cancel both real consent dialogs. Never confirm pairing,
+        // create/read keys, request Bluetooth access, or start a lyric listener.
+        tap("lyrics.start", in: app)
+        let lyricsAlert = app.alerts["开始车机歌词？"]
+        XCTAssertTrue(lyricsAlert.waitForExistence(timeout: 5))
+        XCTAssertTrue(lyricsAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "曲目时长发送至 LRCLIB")).firstMatch.exists)
+        XCTAssertTrue(lyricsAlert.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "未加密 HTTP")).firstMatch.exists)
+        lyricsAlert.buttons["取消"].tap()
+        XCTAssertFalse(element("lyrics.stop", in: app).exists)
+        reveal(selector, identifier: "home.mode", in: app)
         selector.buttons["投屏"].tap()
         XCTAssertTrue(element("action.broadcast.prepare", in: app).exists)
+
+        // Editing alone must not persist the synthetic vehicle or start work.
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(selector.waitForExistence(timeout: 5))
+        selector.buttons["歌词"].tap()
+        reveal(vin, identifier: "tesla.vin", in: app)
+        XCTAssertEqual(vin.value as? String, "17 位车辆 VIN")
+        XCTAssertFalse(element("lyrics.stop", in: app).exists)
     }
 
     @MainActor

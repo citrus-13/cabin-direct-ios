@@ -1,50 +1,56 @@
-# V1 App Store readiness — working checklist
+# App Store readiness — 0.8.0 working checklist
 
-Scope: Cabin Direct, a native iPhone local screen companion with a ReplayKit extension and browser receiver. Current 0.5.0 development adds [default-OFF experimental music](MUSIC.md), absent from preview.3/preview.2. Historical evidence below does not validate those changes. This is an engineering/submission-preparation checklist, **not App Store approval, a legal opinion or an installable release**.
+Scope: foreground Tesla BLE lyrics in the CabinDirect host, plus separate ReplayKit screen sharing and a local browser receiver. This is engineering/submission preparation, **not App Store approval, a legal opinion, an installed build or an authorized submission**. Existing draft store materials must be reconciled with this feature set before use.
 
-## Evidence gates
+## Current evidence gates
 
-| Gate | Current evidence / required next proof |
+| Gate | Evidence / missing proof |
 | --- | --- |
-| Published developer preview | [v0.4.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.4.0-preview.1), source12517ec: actual unsigned Release compilation and121 source tests passed; downloaded metadata/checksums independently verified. |
-| Updated source / simulator | New store-preparation changes require their own exact-commit iOS and real Simulator run. Do not transfer the historical IPA's evidence automatically; consult the dedicated workflow and simulator report. |
-| Signing and installation | No signed IPA, provisioned installation or verified App Group / ReplayKit entitlement behavior. |
-| Actual native sample | Source implements an original sample on production transport; verify startup, permission denial/retry, browser pairing, frame advance, expiry and acknowledged teardown on a real iPhone. |
-| Actual screen broadcast | Verify manual capture initiation, rotation, optional OCR region, notifications, pause/resume, stale clearing, matching stop, forced termination and explicit unconfirmed UI recovery. |
-| Network/device coverage | Trusted Wi-Fi and hotspot, address-change teardown, IPv4/IPv6-only reachability and browser fallback require live evidence. No IPv6-only proof yet. |
-| Stability and safety | No thermal/endurance/battery proof or parked Tesla acceptance. Calls, lock/unlock, system termination and long sessions remain tests, not guarantees. |
-| Submission materials | [Draft kit](store/README.md) now includes bounded Chinese metadata, English reviewer instructions, disclosure/rights worksheets and screenshot/accessibility plan. Publisher/contact, finalized URLs, real-device proof and submission remain pending. |
-| New music preview | [v0.5.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.5.0-preview.1) source `4ec061d`: actual iOS Release compile, 239 tests and independent package checks passed. Actual Shazam service admission/free signing, on-device opt-in traffic/capture/timing/lifecycle and rights remain pending; use the [music acceptance checklist](MUSIC.md#acceptance-checklist--evidence-pending). |
+| Offline BLE and lyric clock | Integration record reports 46 local public/synthetic protocol/clock checks passed. No vehicle, Bluetooth or Keychain access is implied. |
+| Exact 0.8.0 compilation/UI | iOS/cloud compilation and safe Simulator UI results pending at this documentation update. Inspect exact-commit reports rather than transferring older passes. |
+| Signing/installation | Current signed phone installation, host-default Keychain and extension/App Group behavior remain independent unverified gates. |
+| Tesla authorization | Real Monitor enrollment/keycard/NFC flow, granted permissions and authenticated media availability must be verified on an authorized parked vehicle. |
+| Metadata/timing | Check firmware, position/duration units, missing fields, native and phone-fed music sources, pause/seek/change and six-second staleness on hardware. |
+| Lifecycle | Verify foreground display-awake behavior, previous idle-timer restoration, background stop, no automatic restart, disconnect and error cleanup. |
+| Screen/audio | Real ReplayKit start/stop, system-permitted audio, optional Shazam service admission, receiver sound and fallback still require device/browser proof. |
+| Network/endurance | Trusted Wi-Fi/hotspot, permission denial, address changes, IPv4/IPv6-only, battery/thermal/endurance and actual vehicle-browser behavior remain acceptance work. |
+| Submission | Publisher/contact, final URLs, rights, privacy labels, screenshots and explicit submission authority remain unresolved. |
 
-The code supplies Connect / Share / Help, diagnostics, a real system broadcast picker and an optional on-device visible-text region. The original sample is foreground-only, at most 1 fps and ten minutes; it is neither recorded phone content nor a fake successful vehicle connection. The main app entering the background must not terminate a real ReplayKit broadcast. Both runtimes must finish server cleanup before reporting a completed stop.
+Historical only: [v0.5.0-preview.1](https://github.com/citrus-13/cabin-direct-ios/releases/tag/v0.5.0-preview.1), source `4ec061d`, has recorded [Release compilation and 239 tests](https://github.com/citrus-13/cabin-direct-ios/actions/runs/42476798870) with independent package checks. Earlier 0.4.0 store preparation also recorded Simulator navigation/screenshots. Neither validates the 0.8.0 BLE runtime, a signed phone, Monitor authorization or App Store acceptance. Superseded microphone/background designs are not the current scope.
 
-## Reviewable path without a Tesla
+## Review paths and required dependencies
 
-After obtaining an authorized, correctly signed build, a reviewer can keep the iPhone app foregrounded on trusted Wi-Fi, open **Connect → original sample**, enter its displayed address on a second user-owned browser device, then enter its separate six-digit code within 120 seconds. Check advancing original JPEG frames, the DEMO banner, state refresh, disconnect/re-pair limits, network changes and explicit stop. This uses the same LocalHTTPServer, bundled receiver, authentication and frame/state routes as the real broadcast; no developer account, vehicle enrollment or cloud server is needed at runtime.
+The actual UI is **首页** with **歌词 / 投屏** selection, plus **设置** and nested privacy/About pages. The old original development sample is not an ordinary home entry point; do not instruct reviewers to use removed Connect/Share/Help or diagnostic screens.
 
-Separately test **Share**: save settings, optionally enable visible-text recognition, acknowledge privacy, manually start the iOS broadcast picker, pair the other browser and display permitted original content. Confirm that backgrounding the main app leaves the real extension running; use app stop or the iOS recording indicator to end it. Keep screen contents non-sensitive and do not submit fabricated capture or vehicle evidence.
+For screen mode, a correctly signed phone and second user-owned browser on trusted Wi-Fi can exercise **投屏 → 开始投屏**, its notice, genuine iOS broadcast picker, local URL and separate six-digit web code. Use original permitted content. Verify real capture, receiver behavior, stop, staleness and address changes. Backgrounding the host must not itself terminate ReplayKit.
 
-This is a proposed reproducible review procedure, **not a promise that the sample alone satisfies App Review**. The app must provide adequate finished utility and reviewers must be able to inspect its actual features. Explain the second-browser/local-network dependency and extension clearly. Consult Apple's [App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/), particularly completeness, accurate metadata, minimum functionality, extensions and privacy; approval is Apple's decision. Parked-car compatibility remains a separate hardware/firmware acceptance track, with no universal music, DRM or lock-screen guarantee.
+Full Tesla lyrics evaluation needs an authorized parked Tesla: valid VIN, separately confirmed Monitor enrollment and possible keycard/NFC action, then separately confirmed start/LRCLIB processing. A simulator or second browser cannot prove vehicle enrollment or media semantics. Give reviewers an authorized workable review plan for vehicle-dependent functionality before submission; do not claim the screen-only path tests all features.
 
-## Privacy and manifest audit
+No account, Tesla cloud/OAuth, paid API or microphone is part of BLE lyrics. The host uses its default Keychain without a shared vehicle-key access group. Monitor grants broader read-only authority than media, while this app's request allowlist is media-only; explain both accurately.
 
-- `ios/PrivacyInfo.xcprivacy`: declares no tracking, collected-data categories or required-reason API categories for the app target.
-- `ios/Privacy/Broadcast/PrivacyInfo.xcprivacy`: declares `NSPrivacyAccessedAPICategorySystemBootTime`, reason `35F9.1`, for local elapsed-time pacing. New music recognition/freshness also uses uptime; audit the reason against the final implementation. Device uptime is not placed in public state, diagnostics or off-device data.
-- Re-audit the final binary and dependencies, not only source manifests. Apple's [required-reason API documentation](https://developer.apple.com/documentation/bundleresources/describing-use-of-required-reason-api) governs declarations; manifest presence is not compliance approval.
-- The [privacy draft](PRIVACY.md) describes V1's intended no-developer-collection behavior. Complete and verify publisher information, policy hosting, support/contact metadata and [App Store privacy answers](https://developer.apple.com/app-store/app-privacy-details/) for the actual submitted build. No privacy label is approved or submitted by this checklist.
-- Keep TeslaBLE and vehicle enrollment research outside the runtime and permissions. Current development intentionally adds DirectLyrics/ShazamKit to the optional music path; verify its two opt-ins, no microphone/audio relay/archive, current-track memory retention, failure behavior and provider/lyric rights. Re-check that neither target gains Bluetooth or shared-Keychain permission.
-- Explicitly disclose user-initiated recording, visible notification risks, optional OCR, local **unencrypted HTTP**, session pairing, ephemeral browser credentials and retained local settings. Do not describe local pairing as encryption.
+## Privacy and package audit
+
+- Verify host Bluetooth/local-network purpose strings, no microphone/background-mode declarations, and no vehicle keys or BLE operation in the extension.
+- Confirm opening/tab selection/VIN typing causes no vehicle action, key access, listener or provider lookup. Separate explicit enrollment from per-session lyric consent; cancellation must be inert.
+- Confirm VIN persists only after explicit valid pairing/start and never appears in logs, provider calls or webpage state. Keys remain host-local; normal session stop does not revoke enrollment.
+- Confirm only consented current-track title/artist/duration goes to LRCLIB. Optional screen Shazam is a separate opt-in and receives signatures, not raw audio/screens.
+- Audit exact app/extension privacy manifests and required-reason API declarations against the implementation and binary, not older checklist claims. Source manifests are not approved privacy labels.
+- Disclose broader Monitor authorization, vehicle revocation, retained VIN/keys, foreground-only lifecycle, local **unencrypted HTTP**, short-lived web pairing and receiver copying.
+- Preserve [NOTICE](../NOTICE), [third-party inventory](../THIRD_PARTY.md), [Tesla protocol provenance](../ios/TeslaBLE/PROVENANCE.md) and its [upstream license](../ios/TeslaBLE/LICENSE-TESLA) in distributions containing the adapted runtime.
+- Reconcile the [draft privacy statement](PRIVACY.md), [support page](SUPPORT.md), [music acceptance checklist](MUSIC.md#evidence-and-acceptance) and older [store draft kit](store/README.md) before use. No placeholder publisher/contact or outdated microphone/research-only claims may be submitted.
 
 ## Before any submission
 
-- [ ] Record a passing actual unsigned V1 compile for the exact submitted source; then independently sign/install and validate both app and extension on-device.
-- [ ] Complete the browser/sample and real ReplayKit tests above, including cleanup callbacks, 120-second / five-error pairing limits, eight-hour broadcast expiry, changed-network termination and no false stop confirmation.
-- [ ] Test denied local-network access, app lifecycle, accessibility/text sizes, orientations, supported device sizes and IPv6-only environments; resolve crashes and misleading states.
-- [ ] Complete separate parked-car and thermal/endurance acceptance before making those claims.
-- [ ] Complete remaining [music acceptance](MUSIC.md#acceptance-checklist--evidence-pending) and independently review the 0.5.0 listing/reviewer/privacy drafts for the final feature set. Earlier 0.4.0 evidence does not clear the new network music feature.
-- [ ] Supply real publisher contact, working support/policy URLs, accurate age/category/content metadata and honest device screenshots. No placeholders or invented contact details.
-- [ ] Review name/trademark and content rights. Original icon geometry is reproducible with `swift scripts/make-app-icon.swift /absolute/external/AppIcon.png`; it does not clear a product name or third-party marks.
-- [ ] Preserve [LICENSE](../LICENSE), [NOTICE](../NOTICE), [third-party inventory](../THIRD_PARTY.md), [Tesla research provenance](../ios/TeslaBLE/PROVENANCE.md) and [legacy WebRTC notices](../ios/App/ThirdPartyNotices.txt). Do not imply retained research runs in V1.
-- [ ] Replace developer-stage notices only after the corresponding evidence exists; make no claim of approval, installation or universal compatibility in advance.
+- [ ] Exact-commit iOS host/extension build and safe UI tests pass, including invalid VIN, consent cancellation and no automatic operations.
+- [ ] Independently sign/install and validate host Keychain, App Group/ReplayKit, local-network and Bluetooth denial/retry.
+- [ ] Complete actual parked-car enrollment/Monitor/firmware/media-field checks and multi-source metadata tests.
+- [ ] Validate pause/resume/seek/track changes, unknown state, six-second stale hiding, disconnect, background stop and idle-timer restoration.
+- [ ] Validate real screen/audio and optional recognition/lyrics boundaries independently.
+- [ ] Check 120-second/five-error web pairing, session expiry, no token/VIN URL leakage, address-change cleanup and honest stop confirmation.
+- [ ] Check accessibility, supported screens/orientations, privacy/consent readability and IPv6-only behavior.
+- [ ] Obtain thermal/endurance evidence before making reliability claims; no universal lock-screen or music-platform promises.
+- [ ] Supply real publisher/contact, working policy/support URLs, accurate metadata, rights analysis and honest screenshots of the actual build.
+- [ ] Resolve lyric/content and name/trademark rights; API access and original icon/source licensing do not clear them.
+- [ ] Agree an accessible review plan for vehicle-dependent functionality and obtain explicit submission authority.
 
-No fees, purchases, developer-account changes, publication or pricing/monetization decision are authorized by this checklist.
+No fees, purchases, account changes, publication or pricing decision is authorized by this checklist. Apple's [review guidelines](https://developer.apple.com/app-store/review/guidelines/) remain a reference, not an approval forecast or freshly verified legal determination.

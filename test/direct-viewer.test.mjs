@@ -435,6 +435,97 @@ test('explicit pairing supersedes the initial pending cookie check without polli
 
 const music = (extra = {}) => ({ status: 'lyrics', title: 'Track', artist: 'Artist', lines: ['Music lyric'], updatedAt: 1000, matchedAt: 1000, position: 72.9, source: 'shazam', message: '', ...extra });
 const microphoneState = (extra = {}) => ({ source: 'microphone-lyrics', captureState: 'waiting', frameUpdatedAt: 0, width: 0, height: 0, lyricState: 'disabled', lyricLines: [], music: music(), ...extra });
+const teslaState = (extra = {}) => microphoneState({ source: 'tesla-ble-lyrics', music: music({ source: 'tesla-ble' }), ...extra });
+
+test('Tesla BLE lyrics display vehicle provenance and never start image or media playback', async () => {
+  const v = viewer({mse: true});
+  v.requests[0].resolve(response(200, teslaState({captureState: 'live', width: 960, height: 540,
+    frameUpdatedAt: 1000, media: mediaDescriptor()}))); await flush();
+  assert.equal(v.nodes.get('stage').hidden, true); assert.equal(v.nodes.get('screenModes').hidden, true);
+  assert.equal(v.nodes.get('musicPanel').hidden, false);
+  assert.equal(v.nodes.get('musicTitle').textContent, 'Track'); assert.equal(v.nodes.get('musicArtist').textContent, 'Artist');
+  assert.equal(v.nodes.get('musicSource').textContent, 'Tesla蓝牙');
+  assert.equal(v.nodes.get('musicPosition').textContent, '约 1:12');
+  assert.equal(v.nodes.get('musicLines').children[0].textContent, 'Music lyric');
+  assert.match(v.nodes.get('musicNote').textContent, /LRCLIB.*车辆进度.*估算.*漂移.*不保证歌词版本/);
+  assert.match(v.nodes.get('captureNote').textContent, /蓝牙.*Tesla.*播放进度.*不共享屏幕/);
+  v.nodes.get('screen').fire('error'); v.nodes.get('video').fire('error'); v.modes[0].fire('click');
+  v.nodes.get('soundButton').fire('click'); v.interval(); await flush();
+  assert.equal(v.nodes.get('screen').src, undefined); assert.equal(v.nodes.get('video').src, undefined);
+  assert.equal(v.mediaConstruction.attempts, 0); assert.equal(v.created, 0);
+  assert.ok(v.requests.every(item => item.path === '/api/state'));
+});
+
+test('Tesla BLE observation expires after six seconds even with fresh server heartbeats', async () => {
+  const v = viewer(); v.requests[0].resolve(response(200, teslaState())); await flush();
+  v.advance(6000); v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: music({source: 'tesla-ble', updatedAt: 1006})}))); await flush();
+  assert.equal(v.nodes.get('musicPanel').hidden, false, 'exactly six seconds remains valid');
+  v.advance(1); v.interval();
+  assert.equal(v.nodes.get('musicPanel').hidden, true, 'independent watchdog uses observation time');
+  assert.equal(v.nodes.get('musicTitle').textContent, ''); assert.equal(v.nodes.get('musicLines').children.length, 0);
+  v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: music({source: 'tesla-ble', updatedAt: 1006.001})}))); await flush();
+  assert.equal(v.nodes.get('musicPanel').hidden, true, 'fresh heartbeat never renews an old vehicle observation');
+  v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: music({source: 'tesla-ble', updatedAt: 1006.001, matchedAt: 1006.001})}))); await flush();
+  assert.equal(v.nodes.get('musicPanel').hidden, false);
+});
+
+test('Tesla BLE waiting uses curated vehicle guidance without microphone or arbitrary diagnostics', async () => {
+  const v = viewer();
+  v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble', status: 'waiting',
+    matchedAt: 0, message: 'PRIVATE vehicle diagnostics VIN', title: 'PRIVATE old title'})}))); await flush();
+  assert.equal(v.nodes.get('musicTitle').textContent, '等待车辆播放信息');
+  assert.match(v.nodes.get('musicMessage').textContent, /Tesla.*Cabin.*前台.*车辆蓝牙/);
+  assert.equal(v.nodes.get('musicArtist').textContent, ''); assert.equal(v.nodes.get('musicLines').children.length, 0);
+  for (const node of v.nodes.values()) assert.doesNotMatch(node.textContent, /麦克风|周围音乐|扬声器|PRIVATE|VIN/);
+  assert.ok(v.requests.every(item => item.path === '/api/state'));
+});
+
+test('Tesla BLE unknown providers and acoustic states are rejected without starting visual capture', async () => {
+  for (const update of [
+    {source: 'other'}, {source: 'tesla-ble-extra'}, {source: 'TESLA-BLE'}, {source: 'shazam'}, {source: 'manual'},
+    {status: 'recognizing'}, {status: 'unavailable'}, {status: 'unknown'}, {matchedAt: 1001}, {matchedAt: null}
+  ]) {
+    const v = viewer({mse: true});
+    v.requests[0].resolve(response(200, teslaState({captureState: 'live', width: 960, frameUpdatedAt: 1000,
+      media: mediaDescriptor(), music: music({source: 'tesla-ble', ...update})}))); await flush();
+    assert.equal(v.nodes.get('musicPanel').hidden, true, JSON.stringify(update));
+    assert.equal(v.nodes.get('screen').src, undefined); assert.equal(v.nodes.get('video').src, undefined);
+    assert.equal(v.mediaConstruction.attempts, 0); assert.ok(v.requests.every(item => item.path === '/api/state'));
+  }
+});
+
+test('Tesla BLE missing timing hides lines while repeated paused observations preserve frozen lyrics', async () => {
+  const v = viewer(); v.requests[0].resolve(response(200, teslaState())); await flush();
+  v.advance(2000); v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: music({source: 'tesla-ble', updatedAt: 1002, matchedAt: 1002})}))); await flush();
+  assert.equal(v.nodes.get('musicPosition').textContent, '约 1:12');
+  assert.equal(v.nodes.get('musicLines').children[0].textContent, 'Music lyric');
+  for (const update of [{status: 'matched', position: null}, {status: 'matched'}, {position: null}]) {
+    v.tick(1000);
+    v.requests.at(-1).resolve(response(200, teslaState({music: music({source: 'tesla-ble', updatedAt: 1002, matchedAt: 1002, ...update})}))); await flush();
+    assert.equal(v.nodes.get('musicTitle').textContent, 'Track');
+    assert.equal(v.nodes.get('musicLines').children.length, 0, JSON.stringify(update));
+  }
+});
+
+test('Tesla BLE transition aborts old media bytes and later screen mode still works', async () => {
+  const v = viewer({mse: true});
+  v.requests[0].resolve(response(200, v.live({media: mediaDescriptor()}))); await flush(); await v.openMedia();
+  v.requests.at(-1).resolve(response(200, mediaIndex())); await flush();
+  const oldInit = v.requests.at(-1), delayed = deferred();
+  oldInit.resolve({...response(200), body: delayedBody(delayed.promise)}); await flush();
+  v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState({media: mediaDescriptor()}))); await flush();
+  assert.equal(oldInit.options.signal.aborted, true);
+  delayed.resolve(mediaBytes()); await flush();
+  assert.equal(v.appends.length, 0); assert.equal(v.nodes.get('video').src, undefined);
+  assert.equal(v.nodes.get('stage').hidden, true);
+  v.tick(1000); v.requests.at(-1).resolve(response(200, v.live({source: 'visible-screen'}))); await flush();
+  assert.equal(v.nodes.get('stage').hidden, false); assert.equal(v.nodes.get('screenModes').hidden, false);
+  assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
+});
 
 test('explicit microphone lyrics hides screen UI and never requests frames even with erroneous live fields', async () => {
   const v = viewer();

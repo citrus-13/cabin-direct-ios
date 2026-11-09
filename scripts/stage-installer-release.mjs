@@ -69,10 +69,10 @@ verifyTag();
 const notes = [
   '# Cabin Direct ' + tag + ' — requires personal signing',
   '',
-  '包含独立歌词和投屏两个模式。打开 App 不自动开启麦克风或广播；歌词收音与识曲服务由你逐次确认。投屏中的识曲和 LRCLIB 歌词查询仍分别默认关闭。下载后仍需个人签名，不能直接点击安装。',
+  '包含独立 Tesla 蓝牙歌词和投屏两个模式。歌词模式不使用麦克风或广播；首次车辆 Monitor 配对与开始歌词分别确认。车辆密钥只留在主 App 默认钥匙串，不登录 Tesla 账号、不调用付费 Fleet API、不发送车辆控制指令。下载后仍需个人签名，不能直接点击安装。',
   '固定免费入口 https://citrus-13.github.io/cabin-direct-ios/ 可记住你确认的本地地址；地址变化需更新，新会话仍需配对。入口不发现手机、不转发媒体。',
-  '投屏增加 H.264/AAC 共用媒体时钟、短缓存及断线恢复；浏览器起始静音，不兼容时回退无声画面。歌词模式不需要广播，也不转发麦克风音轨。真实 iPhone/Tesla 的音画延迟、后台和热稳定性仍待验证。',
-  '免费签名账号的 Shazam App Service 权限、实际识曲及手机后台行为尚未核验；没有付费升级。歌词位置为估算，录音版本未核验。受保护视频不支持绕过，不保证可投屏。',
+  '投屏保留 H.264/AAC 共用媒体时钟、短缓存及断线恢复；浏览器起始静音，不兼容时回退无声画面。独立歌词只支持 Cabin 前台，进入后台会停止。车辆授权、媒体字段、时间单位和实际歌词同步仍待 iPhone/Tesla 验证。',
+  '确认开始歌词后仅向 LRCLIB 发送曲目名称、歌手和可用时长；车辆数据缺失或过期时不推测滚动。采样间进度短暂估算，歌词版本未保证匹配。投屏内可选 Shazam/LRCLIB 默认关闭，免费签名的识曲权限仍未核验。没有付费升级或绕过受保护视频。',
   '',
   'This is an arm64 iOS Release installer input with identity-free ad-hoc entitlement metadata.',
   'It is NOT Apple Ad Hoc distribution, an Apple-signed app, TestFlight or App Store distribution.',

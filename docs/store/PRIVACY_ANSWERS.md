@@ -1,27 +1,30 @@
-# Privacy worksheet — source-reviewed candidates
+# Privacy worksheet — 0.8.0 candidates, not submitted
 
-No label is entered or submitted. Current 0.5.0 source adds default-OFF Apple/Shazam recognition and independently consented LRCLIB requests; this worksheet must be re-audited, not reused as a finalized Data Not Collected answer. Existing preview.3/preview.2 evidence does not validate the new path. Recheck the distributed app, extension, SDKs and support practice. The publisher owns the final answers.
+No privacy label is entered or approved. Audit the exact host/extension, linked dependencies, provider practices and final traffic before answering. “No developer endpoint” is not “nothing leaves the phone” or a finalized Data Not Collected classification. [Apple privacy reference](https://developer.apple.com/app-store/app-privacy-details/).
 
-Apple defines collection in terms of off-device data accessible to the developer/partners beyond real-time request servicing. “No developer collection” does not mean “nothing leaves the phone”: the paired browser receives images and optional text. [Apple's definitions](https://developer.apple.com/app-store/app-privacy-details/)
-
-| Path | Candidate answer and evidence |
+| Path | Current intended boundary / required verification |
 | --- | --- |
-| Developer/partner collection | No developer endpoint, analytics/ads or account is implemented. Optional third-party Apple/Shazam and LRCLIB processing needs separate provider-practice and final-traffic review before any Data Not Collected answer. |
-| Tracking | None implemented; no ATT, IDFA or cross-app tracking. Do not add a meaningless permission prompt. |
-| Images/OCR | DirectSampleHandler/CapturePipeline/LocalHTTPServer send to the user-selected local browser. Receiver copies/extensions are outside app control. |
-| App audio / recognition | Explicitly selected ReplayKit `audioApp` input becomes fingerprints for Apple/Shazam; no microphone consumption, raw-audio forwarding or recording archive. Default OFF; global-catalog account admission is unproven. |
-| Track metadata / lyrics | Separate default-OFF consent sends title/artist to LRCLIB. Returned current-track lyrics remain in runtime memory; bounded metadata/lines reach the paired browser. Providers receive ordinary connection metadata. [Music disclosure](../MUSIC.md). |
-| Contacts, location, music accounts, vehicle keys | No implemented access path; retained vehicle research remains separate. |
-| Credentials/settings | Local App Group and browser cookie, with session expiry and matched cleanup; interrupted files/settings may persist. |
-| Diagnostics | Explicit local copy only, not automatic upload. A future support channel requires its own review. |
-| Privacy/help links | Explicit external-browser navigation. GitHub/final host has its own network practices; no app background request is added. |
+| Vehicle enrollment | Separate explicit confirmation requests Monitor, a broader read-only role than media. App allowlist requests media only, not location or vehicle controls. Real grant/keycard/NFC behavior still needs hardware proof. |
+| VIN / vehicle keys | VIN saved locally only after explicit valid pairing/start; host-default Keychain stores the key with no shared vehicle-key group. No VIN/key in logs, webpages, provider requests or ReplayKit extension. Confirm final binary/traffic. |
+| BLE lyrics | Authenticated media title/artist/duration/position/playback state when provided. No microphone, Tesla cloud/OAuth, paid API or background mode. |
+| LRCLIB | Per-session consent permits bounded current-track title/artist/duration lookup; returned lyric lines stay transient and reach the paired browser. Provider receives normal connection metadata. Review provider retention and content rights. |
+| Screen/audio/OCR | User-operated ReplayKit sends permitted frames/audio to local paired browser. Optional Vision OCR stays on-device; browser copies are outside app control. |
+| Optional screen recognition | Separate default-OFF ShazamKit audioApp signatures go to Apple/Shazam; no audioMic, raw-audio upload or recording archive. Service admission remains independent. |
+| Tracking / accounts | No analytics, ads, IDFA, ATT-based tracking or app account implemented. Recheck dependencies and final release. |
+| Web credentials/settings | Lyrics credentials in host memory; screen session coordination in App Group. Web cookie/session expiry is separate from persistent vehicle enrollment and saved preferences. |
+| Fixed entry / links | GitHub Pages receives ordinary access metadata; launcher stores only explicitly confirmed local address/navigation choice. No background app navigation or media relay. |
+| Diagnostics / clipboard | No diagnostic export or automatic upload. Explicit Copy writes local-only expiring clipboard items; do not confuse this with a support uploader. |
 
-The app manifest declares no tracking, collected-data categories or required-reason APIs. The extension alone declares SystemBootTime reason 35F9.1 for local elapsed-time pacing; current music recognition/freshness also uses uptime and needs final reason review. The original app sample uses wall-clock time. Manifest validation is not label approval or proof of provider retention practices.
+## Consent, retention and revocation
 
-## Consent, retention and deletion
+Opening Cabin, typing VIN or switching modes performs no enrollment, key access or provider lookup. Pairing and lyrics consent are separate; request sent is not accepted enrollment. Stop clears runtime media/lyric work and ends the listener, not the persistent vehicle key or preferences. Remove Cabin's key in the vehicle to revoke access; app deletion is not a verified vehicle-revocation procedure.
 
-Capture starts by a user's iOS action; the in-app checkbox cannot control every Control Center entry point. End through the app or system recording controls. Only bounded latest frame/text/music results and current-track fetched lyrics are intentionally held in memory, not recording history. Normal matched stop removes active credentials; interruption can leave expired files. Settings/last status, manual track fields and saved opt-in choices may persist. Shortcut import resets network lyrics OFF and prepares a draft only; it neither starts capture nor contacts providers.
+Lyrics needs foreground operation: no microphone or background modes, no lock-screen continuity. A user-started session temporarily disables display idle sleep and restores the prior value when stopped. Background stops BLE and the lyric session without automatic restart. ReplayKit's independent user-started extension is not stopped merely by host backgrounding.
 
-Close/unpair the receiver and clear its local site data if needed. Manage app/permission removal through iOS. The source cannot erase receiver screenshots or guarantee forensic erasure. The accountless runtime has no account-deletion endpoint.
+Only bounded current track/media/lyric state and screen fragments are intentionally retained, not a recording or lyric library. Unknown playback/position does not scroll; stale media is hidden. Receivers may save displayed content. Session expiry or clearing site data cannot erase their screenshots/copies; no forensic erasure claim is made.
 
-Publisher/contact and final policy/support URLs remain blocking. Cloud/analytics/relay/lyrics/account/crash/support upload or SDK changes require a fresh audit; optional-support disclosure exceptions are not presumed. Final-binary/network and publisher checks must precede a finalized Data Not Collected answer.
+## Final audit gates
+
+Check both privacy manifests and required-reason APIs against actual elapsed-time/freshness behavior and packaged binaries. A valid manifest does not settle provider practices or App Store labels. Audit Bluetooth/local-network purpose strings, no microphone/background/shared-vehicle-Keychain permission, and default-off screen service choices.
+
+The publisher must resolve real contact/policy/support details, provider processing classifications, territorial lyric rights and final privacy answers. Future SDK, relay, account or support-upload changes require a fresh audit. No current source declaration or historical compile closes these gates.

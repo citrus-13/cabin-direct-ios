@@ -1,21 +1,25 @@
-# Export, rights and category worksheet
+# Export, rights and category worksheet — 0.8.0
 
-This is a technical inventory, not legal/regulatory clearance.
+This is a technical inventory, not legal/regulatory clearance or an authorized submission.
 
 ## Encryption inventory
 
-V1 uses NWParameters.tcp and unencrypted HTTP/MJPEG. DirectConfiguration uses the system Security framework's SecRandomCopyBytes for unpredictable credentials. Pairing is not stream encryption. Explicit external HTTPS links use the system browser.
+Local browser transport remains unencrypted HTTP, including lyrics/state and screen H.264/AAC or JPEG content. Pairing codes/cookies provide access control, not stream encryption. Security framework randomness supplies session credentials. Provider HTTPS and explicit external links use their respective system networking/browser paths.
 
-V1 does not link the retained TeslaBLE/CryptoKit protocol or legacy WebRTC runtime. Check linked products, not repository-wide filenames. No custom-encryption or transport-confidentiality claim is made.
+The CabinDirect host now links the reduced **TeslaBLE** protocol adaptation, including CryptoKit cryptographic authentication/encryption for vehicle communication. This is not research-only code in the 0.8.0 host. Host vehicle keys use default Keychain (`accessGroup: nil`) and are not shared with ReplayKit. Legacy WebRTC remains separate; verify actual linked products, not repository-wide names.
 
-The publisher must answer Apple's [export-compliance questionnaire](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/) for the final binary/territories. No exemption, document number or ITSAppUsesNonExemptEncryption answer is silently invented or added. Re-audit future encryption changes.
+The publisher must answer Apple's [export-compliance questionnaire](https://developer.apple.com/help/app-store-connect/manage-app-information/overview-of-export-compliance/) for the actual final binary and territories. Do not infer an exemption from local HTTP, platform cryptography or historical screen-only answers. No exemption, document number or `ITSAppUsesNonExemptEncryption` answer is invented by this worksheet.
 
-## Rights
+## Rights and attribution
 
-Original source, icon geometry and sample: Apache-2.0 with LICENSE/NOTICE. Apple frameworks are system SDKs, not copied SDK binaries. Retained research/legacy components have separate [third-party notices](../../THIRD_PARTY.md).
+Original source, icon geometry and synthetic fixtures retain their documented license. Preserve [LICENSE](../../LICENSE), [NOTICE](../../NOTICE), [third-party inventory](../../THIRD_PARTY.md), [Tesla provenance](../../ios/TeslaBLE/PROVENANCE.md) and [upstream Apache-2.0 license](../../ios/TeslaBLE/LICENSE-TESLA) with distributions containing the adaptation. Apple frameworks are platform SDKs, not bundled SDK binaries.
 
-No third-party lyrics, album art, product logos, account screens or videos are bundled. No Tesla/Apple/music-service endorsement, CarPlay integration or universal compatibility is claimed. Cabin Direct is a candidate name, not trademark clearance. Sharing user-selected content does not create redistribution rights; do not bypass DRM.
+No third-party song lyrics, album art, product logos, account screens or videos are bundled as fixtures. LRCLIB availability and source licensing do not grant underlying lyric display/redistribution rights; resolve provider terms and applicable territorial rights before distribution.
+
+No Tesla/Apple/music-service endorsement, CarPlay integration or universal compatibility is claimed. Monitor enrollment is vehicle authorization, not a trademark or content license. Cabin Direct remains a candidate name, not name/trademark clearance. User-selected content does not create redistribution rights; protected content is not bypassed.
 
 ## Publisher decisions
 
-Utilities is a candidate category. Price, territories, age rating, copyright-holder text and trader/legal details remain unsubmitted. No in-app purchases, ads, accounts, chat/social feed or unrestricted embedded web browser is implemented; the selected screen may nevertheless contain arbitrary content. Do not automatically assign a rating or Kids category. Use the actual current App Store Connect questions.
+Utilities is a candidate category. Pricing, territories, age rating, copyright-holder text and legal/trader information remain unsubmitted. No purchases, agreements or fees are authorized here. Lack of paid APIs does not promise zero-cost App Store distribution or permanent free signing.
+
+Use the actual current App Store Connect questions; do not invent an age/export/accessibility answer from this source worksheet. Selected screen content and remotely retrieved lyrics require honest review of the final feature set.
