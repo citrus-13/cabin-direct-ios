@@ -216,6 +216,7 @@ async function simulateRunner(options = {}) {
         if (args[0] === '-version') output = 'Xcode 27.0\nBuild version 18A1\n';
         else if (options.timeout) return;
         else if (options.testFailure) status = 65;
+        else output = options.uiOutput || '';
       } else if (command === 'xcrun' && args[0] === 'simctl') {
         if (args[1] === 'list') output = JSON.stringify({ ...inventory(), devices: { [runtime]: owned ? [owned] : [] } });
         else if (args[1] === 'create') {
@@ -269,6 +270,18 @@ test('[SIMULATED RUNNER] failed tests, skips and missing screenshots fail closed
     assert.equal(result.report.owned_simulator_deleted, true);
     assert.equal([...result.files.keys()].filter(name => name.startsWith('/simulated/out/')).length, 1, 'No screenshot assets released on failure');
   }
+});
+
+test('[SIMULATED RUNNER] live progress forwards only known milestones without raw UI output', async () => {
+  const result = await simulateRunner({uiOutput: '[STORE-PREP TEST] dark-launched\n' +
+    '[STORE-PREP TEST] dark-launched\n[STORE-PREP TEST] unknown-private-data\n' +
+    'password=SYNTHETIC_PRIVATE\n[STORE-PREP TEST] dark-support-opened\n'});
+  const progress = result.consoleOutput.filter(line => line.startsWith('[UI progress]'));
+  assert.equal(progress.length, 2);
+  assert.match(progress[0], /^\[UI progress\] dark-launched at \d+ ms$/);
+  assert.match(progress[1], /^\[UI progress\] dark-support-opened at \d+ ms$/);
+  assert.doesNotMatch(result.consoleOutput.join('\n'), /unknown-private-data|SYNTHETIC_PRIVATE/);
+  assert.equal(result.report.passed, true);
 });
 
 test('[SIMULATED RUNNER] dirty source creates no simulator; timed-out tests and interrupted create retain owned-only cleanup', async () => {

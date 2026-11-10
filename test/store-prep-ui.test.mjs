@@ -155,9 +155,9 @@ test('XCUITest contract is four genuine navigation checks and ten retained real-
   assert.match(ui, /XCTAssertEqual\(textSize\.value as\? String, "辅助功能字号"/);
   assert.match(ui, /reveal\(preview, identifier: "setting\.region\.preview", in: app, requiresHittable: false\)/);
   assert.match(ui, /XCTAssertTrue\(slider\.isHittable/);
-  assert.match(ui, /target\.frame\.intersection/);
-  assert.match(ui, /surface\.swipeDown\(velocity: \.slow\)/);
-  assert.match(ui, /surface\.swipeUp\(velocity: \.slow\)/);
+  assert.match(ui, /let overlap = frame\.intersection\(viewport\)/);
+  assert.match(ui, /surface\.element\.swipeDown\(velocity: \.slow\)/);
+  assert.match(ui, /surface\.element\.swipeUp\(velocity: \.slow\)/);
   assert.match(ui, /details\(appearance, identifier: "setting\.appearance"\)/);
   assert.match(ui, /let textSize = element\("about\.heading", in: app\)/);
   assert.match(ui, /tap\("setting\.region\.open", in: app\)/);
@@ -187,6 +187,18 @@ test('dark accessibility flow verifies actual values and keeps Settings/Privacy 
     '[STORE-PREP TEST] dark-support-attached', '[STORE-PREP TEST] dark-help-attached',
     '[STORE-PREP TEST] dark-privacy-attached', '[STORE-PREP TEST] dark-share-controls-verified']);
   assert.ok(checkpoints.every(value => !value.includes('\\(')), 'Checkpoints contain authored static text only');
+});
+
+test('large-text UI allowance stays bounded and each reveal iteration refreshes one geometry snapshot', () => {
+  const dark = ui.split('func testDarkAndAccessibilityNavigation()')[1].split('private func assertSimpleHome')[0];
+  assert.match(dark, /executionTimeAllowance = 240/);
+  assert.equal((ui.match(/executionTimeAllowance = /g) || []).length, 1);
+  const loop = ui.split('for attempt in 0..<16 {')[1].split('XCTAssertTrue(isVisible(target')[0];
+  assert.equal((loop.match(/scrollSurface\(in: app\)/g) || []).length, 1);
+  assert.equal((loop.match(/target\.frame/g) || []).length, 1);
+  assert.match(loop, /targetExists && isVisible\(frame: targetFrame, viewport: surface\.viewport\)/);
+  assert.match(loop, /!requiresHittable \|\| target\.isHittable/);
+  assert.match(loop, /goDown = attempt >= 8/);
 });
 
 test('home and settings reject removed diagnostics while tests never trigger preparation or persistence', () => {

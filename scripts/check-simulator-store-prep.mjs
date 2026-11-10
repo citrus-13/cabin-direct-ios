@@ -40,6 +40,7 @@ const redact = text => text
   .replace(/\/(?:Users|home)\/[^\s:]+/g,'[REDACTED PATH]');
 async function run(name, command, args, timeout = 60_000, cleanup = false) {
   phase = name;
+  const startedAt = Date.now();
   requireValue(cleanup || !interrupted, 'Interrupted');
   console.log('[simulator phase] ' + name + ' started');
   const result = await new Promise(resolve => {
@@ -47,12 +48,30 @@ async function run(name, command, args, timeout = 60_000, cleanup = false) {
     active = child;
     const output = [], errors = [];
     let bytes = 0, timedOut = false, overflow = false, spawnError = false;
-    const collect = list => chunk => {
+    const milestones = new Set(['dark-launched', 'dark-support-opened', 'dark-support-selected',
+      'dark-environment-verified', 'dark-support-attached', 'dark-help-attached',
+      'dark-privacy-attached', 'dark-share-controls-verified']);
+    const emitted = new Set();
+    let pendingLine = '';
+    const collect = (list, forwardProgress = false) => chunk => {
       bytes += chunk.length;
       if (bytes > 32 * 1024 * 1024) { overflow = true; stopActive(); }
       else list.push(chunk);
+      // Only fixed, non-sensitive test milestones reach live CI output. Never
+      // forward raw XCTest output, app trees, values or authentication material.
+      if (forwardProgress) {
+        const lines = (pendingLine + chunk.toString('utf8')).split('\n');
+        pendingLine = lines.pop().slice(-4096);
+        for (const line of lines) {
+          const marker = line.match(/\[STORE-PREP TEST\] ([a-z-]+)\s*$/)?.[1];
+          if (milestones.has(marker) && !emitted.has(marker)) {
+            emitted.add(marker);
+            console.log('[UI progress] ' + marker + ' at ' + (Date.now() - startedAt) + ' ms');
+          }
+        }
+      }
     };
-    child.stdout.on('data', collect(output)); child.stderr.on('data', collect(errors));
+    child.stdout.on('data', collect(output, name === 'simulator-ui-tests')); child.stderr.on('data', collect(errors));
     child.on('error', () => { spawnError = true; });
     const timer = setTimeout(() => { timedOut = true; stopActive(); }, timeout);
     child.on('close', (status, signal) => {
@@ -64,7 +83,7 @@ async function run(name, command, args, timeout = 60_000, cleanup = false) {
   fs.writeFileSync(path.join(work, 'logs', name + '.log'), redact(result.stdout + result.stderr), { flag: 'wx' });
   const ok = result.status === 0 && !result.timedOut && !result.overflow && !result.spawnError && (cleanup || !interrupted);
   report.phases.push({ name, passed: ok, exit_code: result.status, timed_out: result.timedOut });
-  console.log('[simulator phase] ' + name + (ok ? ' passed' : ' failed'));
+  console.log('[simulator phase] ' + name + (ok ? ' passed' : ' failed') + ' after ' + (Date.now() - startedAt) + ' ms');
   requireValue(ok, 'Command phase failed: ' + name);
   return result.stdout;
 }

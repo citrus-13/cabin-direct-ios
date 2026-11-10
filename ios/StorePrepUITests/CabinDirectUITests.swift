@@ -136,6 +136,10 @@ final class CabinDirectUITests: XCTestCase {
 
     @MainActor
     func testDarkAndAccessibilityNavigation() {
+        // This checks full navigation at accessibility XXXL, not app performance.
+        // Keep a finite allowance within the runner's existing 240-second maximum;
+        // the other tests retain the default and every assertion remains required.
+        executionTimeAllowance = 240
         let originalAppearance = XCUIDevice.shared.appearance
         let app = launch(appearance: .dark, accessibilityText: true)
         defer { app.terminate(); XCUIDevice.shared.appearance = originalAppearance }
@@ -152,7 +156,8 @@ final class CabinDirectUITests: XCTestCase {
         selectDarkAppearance(in: app)
         print("[STORE-PREP TEST] dark-support-selected")
         let appearance = element("setting.appearance", in: app)
-        reveal(appearance, identifier: "setting.appearance", in: app, requiresHittable: false)
+        // selectDarkAppearance just revealed and awaited this same control.
+        // No navigation or swipe intervened; retain the actual-value assertion.
         XCTAssertEqual(appearance.value as? String, "深色",
                        "Actual SwiftUI colorScheme must be dark; \(details(appearance, identifier: "setting.appearance"))")
         let textSize = element("about.heading", in: app)
@@ -343,41 +348,56 @@ final class CabinDirectUITests: XCTestCase {
         // Choose the onscreen list, not a retained offscreen tab's first list.
         // Small/slow swipes plus frame-guided reversal recover from overscroll.
         for attempt in 0..<16 {
-            if isVisible(target, in: app) && (!requiresHittable || target.isHittable) { return }
-            let surface = scrollSurface(in: app), viewport = surface.frame.intersection(app.frame)
+            // AX queries are remote snapshots. Resolve the visible surface and
+            // each frame once for this iteration, not again for swipe direction.
+            // The next iteration refreshes everything after a swipe/navigation.
+            let surface = scrollSurface(in: app)
+            let targetExists = target.exists
+            let targetFrame = targetExists ? target.frame : .zero
+            if targetExists && isVisible(frame: targetFrame, viewport: surface.viewport) &&
+                (!requiresHittable || target.isHittable) { return }
             let goDown: Bool
-            if target.exists && !target.frame.isEmpty {
-                goDown = target.frame.midY < viewport.midY
+            if targetExists && !targetFrame.isEmpty {
+                goDown = targetFrame.midY < surface.viewport.midY
             } else {
                 // Lazy cells may have no element until scrolled into view: search
                 // toward the end, then back toward the beginning, with a fixed bound.
                 goDown = attempt >= 8
             }
-            if goDown { surface.swipeDown(velocity: .slow) }
-            else { surface.swipeUp(velocity: .slow) }
+            if goDown { surface.element.swipeDown(velocity: .slow) }
+            else { surface.element.swipeUp(velocity: .slow) }
         }
         XCTAssertTrue(isVisible(target, in: app) && (!requiresHittable || target.isHittable),
                       "Not reachable by bounded bidirectional scrolling; \(details(target, identifier: identifier))")
     }
 
     @MainActor
-    private func scrollSurface(in app: XCUIApplication) -> XCUIElement {
+    private func scrollSurface(in app: XCUIApplication) -> (element: XCUIElement, viewport: CGRect) {
+        let appFrame = app.frame
         for query in [app.collectionViews, app.tables, app.scrollViews] {
             for candidate in query.allElementsBoundByIndex {
-                if candidate.exists && candidate.isHittable && !candidate.frame.intersection(app.frame).isEmpty {
-                    return candidate
+                if candidate.exists && candidate.isHittable {
+                    let viewport = candidate.frame.intersection(appFrame)
+                    if !viewport.isEmpty { return (candidate, viewport) }
                 }
             }
         }
-        return app
+        return (app, appFrame)
     }
 
     @MainActor
     private func isVisible(_ target: XCUIElement, in app: XCUIApplication) -> Bool {
-        guard target.exists, !target.frame.isEmpty else { return false }
-        let overlap = target.frame.intersection(scrollSurface(in: app).frame.intersection(app.frame))
-        return !overlap.isEmpty && overlap.width >= min(44, target.frame.width / 2)
-            && overlap.height >= min(44, target.frame.height / 2)
+        guard target.exists else { return false }
+        let frame = target.frame
+        guard !frame.isEmpty else { return false }
+        return isVisible(frame: frame, viewport: scrollSurface(in: app).viewport)
+    }
+
+    private func isVisible(frame: CGRect, viewport: CGRect) -> Bool {
+        guard !frame.isEmpty else { return false }
+        let overlap = frame.intersection(viewport)
+        return !overlap.isEmpty && overlap.width >= min(44, frame.width / 2)
+            && overlap.height >= min(44, frame.height / 2)
     }
 
     @MainActor
