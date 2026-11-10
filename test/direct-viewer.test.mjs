@@ -312,6 +312,21 @@ test('receiver hides technical caption but retains consent, safety warnings and 
   assert.match(footer, /不保证录音版本匹配或播放同步/);
 });
 
+test('receiver HTML describes foreground Tesla BLE lyrics, not the retired microphone route', () => {
+  assert.match(html, /<title>Cabin Direct · 歌词与投屏<\/title>/);
+  assert.match(html, /aria-label="Cabin Direct 歌词与投屏首页"/);
+  assert.match(html, /<small>歌词与画面，连接你的 iPhone。<\/small>/);
+  assert.match(html, /id="musicPanel"[^>]*aria-label="歌曲信息与歌词"/);
+  const footer = html.slice(html.indexOf('<footer>'));
+  for (const disclosure of ['Tesla BLE（蓝牙）', '曲目与播放进度', 'Monitor 配对',
+    '发出请求不代表配对成功', '不控制车辆', '不使用麦克风或屏幕广播',
+    '保持 Cabin 在手机前台', '进入后台会停止歌词会话', '手机热点', '同一 Wi-Fi',
+    '歌词来自 LRCLIB，获取需要联网', '不保证录音版本匹配或播放同步', '仍需实车验证']) {
+    assert.ok(footer.includes(disclosure), `Missing receiver disclosure: ${disclosure}`);
+  }
+  assert.doesNotMatch(html, /iPhone 麦克风识别|通过.*麦克风识别车内|独立音乐识别与歌词|锁屏持续|完美同步/);
+});
+
 test('viewer uses real production MJPEG transport and conspicuous original DEMO labels', async () => {
   const v = viewer(); await startLive(v);
   assert.equal(v.nodes.get('screen').src, '/stream.mjpeg');
