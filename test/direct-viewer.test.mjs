@@ -22,13 +22,14 @@ function viewer({ disconnected = false, mse = false, mseSupported = true, autoAp
   if (disconnected) storage.set('cabin-disconnected', '1');
   function element() {
     const events = new Map(), attributes = new Map();
-    return { hidden: false, textContent: '', value: '', checked: false, disabled: false, style: {}, dataset: {}, children: [],
+    return { hidden: false, textContent: '', value: '', checked: false, disabled: false, style: {}, dataset: {}, children: [], parentElement: {hidden: false},
       classList: { toggle() {} },
       addEventListener(name, fn) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(fn); },
       removeEventListener(name, fn) { events.get(name)?.delete(fn); },
       fire(name) { for (const fn of [...(events.get(name) || [])]) fn({ preventDefault() {} }); },
       setAttribute(name, value) { attributes.set(name, value); },
       hasAttribute(name) { return attributes.has(name); },
+      getAttribute(name) { return attributes.get(name); },
       removeAttribute(name) { attributes.delete(name); },
       set src(value) { attributes.set('src', value); }, get src() { return attributes.get('src'); },
       replaceChildren(...children) { this.children = children; },
@@ -451,6 +452,79 @@ test('explicit pairing supersedes the initial pending cookie check without polli
 const music = (extra = {}) => ({ status: 'lyrics', title: 'Track', artist: 'Artist', lines: ['Music lyric'], updatedAt: 1000, matchedAt: 1000, position: 72.9, source: 'shazam', message: '', ...extra });
 const microphoneState = (extra = {}) => ({ source: 'microphone-lyrics', captureState: 'waiting', frameUpdatedAt: 0, width: 0, height: 0, lyricState: 'disabled', lyricLines: [], music: music(), ...extra });
 const teslaState = (extra = {}) => microphoneState({ source: 'tesla-ble-lyrics', music: music({ source: 'tesla-ble' }), ...extra });
+
+test('lyric player highlights only the explicit raw-array index, preserving escaped text', async () => {
+  const v = viewer(), injection = '<img src=x onerror=alert(1)>';
+  v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble',
+    lines: [null, 'Previous', injection, 'Next'], activeLineIndex: 2})}))); await flush();
+  const lines = v.nodes.get('musicLines').children;
+  assert.deepEqual(Array.from(lines, line => line.textContent), ['Previous', injection, 'Next']);
+  assert.equal(lines[0].hasAttribute('aria-current'), false);
+  assert.equal(lines[1].getAttribute('aria-current'), 'true');
+  assert.equal(lines[1].className, 'lyric-line is-current');
+  assert.equal(lines[2].hasAttribute('aria-current'), false);
+  assert.match(v.nodes.get('lyricSync').textContent, /当前句/);
+  assert.equal(v.nodes.get('fontSize').parentElement.hidden, true);
+});
+
+test('missing, malformed, filtered-out and out-of-window active indices never guess a current line', async () => {
+  for (const activeLineIndex of [undefined, null, '1', true, -1, 1.5, 3, 0, 24]) {
+    const v = viewer();
+    v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble',
+      lines: [null, 'First', 'Second'], activeLineIndex})}))); await flush();
+    assert.ok(v.nodes.get('musicLines').children.every(line => !line.hasAttribute('aria-current')), String(activeLineIndex));
+    assert.equal(v.nodes.get('lyricSync').textContent, '尚无当前句位置');
+  }
+});
+
+test('unchanged lyric windows retain DOM nodes across heartbeat and position updates', async () => {
+  const v = viewer(), original = music({source: 'tesla-ble', lines: ['Previous', 'Now', 'Next'], activeLineIndex: 1});
+  v.requests[0].resolve(response(200, teslaState({music: original}))); await flush();
+  const oldNodes = Array.from(v.nodes.get('musicLines').children);
+  v.advance(1000); v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: {...original, position: 73.9, updatedAt: 1001, matchedAt: 1001}}))); await flush();
+  oldNodes.forEach((node, index) => assert.equal(v.nodes.get('musicLines').children[index], node));
+  assert.equal(v.nodes.get('musicPosition').textContent, '约 1:13');
+  v.tick(1000);
+  v.requests.at(-1).resolve(response(200, teslaState({music: {...original, activeLineIndex: 2, updatedAt: 1001, matchedAt: 1001}}))); await flush();
+  assert.equal(v.nodes.get('musicLines').children[1].hasAttribute('aria-current'), false);
+  assert.equal(v.nodes.get('musicLines').children[2].getAttribute('aria-current'), 'true');
+  v.tick(1000);
+  const beforeTrackChange = v.nodes.get('musicLines').children[2];
+  v.requests.at(-1).resolve(response(200, teslaState({music: {...original, title: 'New track', activeLineIndex: 2, updatedAt: 1001, matchedAt: 1001}}))); await flush();
+  assert.notEqual(v.nodes.get('musicLines').children[2], beforeTrackChange);
+});
+
+test('lyric player clears highlighted content on missing position, stale, stopped and offline states', async () => {
+  for (const action of ['position', 'stale', 'stopped', 'offline']) {
+    const v = viewer();
+    v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble', activeLineIndex: 0})}))); await flush();
+    if (action === 'stale') { v.advance(4001); v.interval(); }
+    else if (action === 'offline') v.handlers.get('offline')();
+    else {
+      v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState(action === 'stopped' ? {captureState: 'stopped'} :
+        {music: music({source: 'tesla-ble', position: null, activeLineIndex: 0})}))); await flush();
+    }
+    assert.equal(v.nodes.get('musicLines').children.length, 0, action);
+    if (action === 'position') {
+      assert.equal(v.nodes.get('musicPosition').textContent, '');
+      assert.match(v.nodes.get('musicMessage').textContent, /等待播放进度/);
+    } else assert.equal(v.nodes.get('lyricsEmpty').hidden, false, action);
+  }
+});
+
+test('lyric layout provides accessible labels, responsive columns and reduced-motion support', async () => {
+  const css = readFileSync(new URL('../ios/StandaloneWeb/direct.css', import.meta.url), 'utf8');
+  assert.match(html, /id="musicLines"[^>]*aria-label="歌词片段，当前句已标记"/);
+  assert.match(html, /id="lyricsEmpty"[^>]*aria-label="歌词接收状态"/);
+  assert.match(css, /@media\(max-width:1100px\)/);
+  assert.match(css, /@media\(max-width:600px\).*grid-template-columns:1fr/);
+  assert.match(css, /prefers-reduced-motion:reduce/);
+  assert.match(css, /\.music-heading h2\{[^}]*-webkit-line-clamp:3/);
+  assert.match(css, /\.lyric-line:not\(\.is-current\)\{[^}]*-webkit-line-clamp:2/);
+  assert.match(css, /@media\(max-height:650px\) and \(min-width:601px\)/);
+  assert.doesNotMatch(source, /scrollIntoView|\.focus\(/);
+});
 
 test('Tesla BLE lyrics display vehicle provenance and never start image or media playback', async () => {
   const v = viewer({mse: true});

@@ -6,7 +6,7 @@
   let paired = false, failures = 0, streamActive = false, snapshotMode = false;
   let objectURL = null, pollTimer = null, lastLiveAt = 0, snapshotBusy = null, generation = 0, streamWatchdog = null;
   let enabled = true, epoch = 0, pollBusy = null, loggingOut = false;
-  let musicFreshness = null, lyricsOnly = false;
+  let musicFreshness = null, lyricsOnly = false, lyricIdentity = null;
   let media = null, failedMedia = '', mediaRetryAt = Infinity, mediaRetryCount = 0, soundConsent = false;
   const mediaRequests = new Set();
   const pending = new Set();
@@ -23,8 +23,10 @@
   }
   function clearMusic() {
     musicFreshness = null; $('musicPanel').hidden = true;
+    lyricIdentity = null; $('lyricsEmpty').hidden = !lyricsOnly;
     for (const id of ['musicTitle', 'musicArtist', 'musicSource', 'musicPosition', 'musicNote', 'musicMessage']) $(id).textContent = '';
     $('musicLines').replaceChildren();
+    $('lyricSync').textContent = '等待歌词';
   }
   function musicIsFresh(music) {
     const now = Date.now() / 1000;
@@ -35,32 +37,49 @@
   }
   function displayMusic(state) {
     const music = state.music;
-    clearMusic();
     if (!music || !['shazam', 'manual', 'tesla-ble'].includes(music.source) ||
         (state.source === 'tesla-ble-lyrics' && music.source !== 'tesla-ble') ||
         (music.source === 'tesla-ble' && !['waiting', 'matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status)) ||
         !['waiting', 'recognizing', 'matched', 'loading', 'lyrics', 'no-lyrics', 'unavailable'].includes(music.status) ||
-        ['paused', 'ended', 'stopped', 'error'].includes(state.captureState) || !musicIsFresh(music)) return;
+        ['paused', 'ended', 'stopped', 'error'].includes(state.captureState) || !musicIsFresh(music)) { clearMusic(); return; }
     musicFreshness = { status: music.status, source: music.source, updatedAt: music.updatedAt, matchedAt: music.matchedAt };
     const text = value => typeof value === 'string' ? value.slice(0, 200) : '';
     const hasTrack = ['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status);
     const tesla = music.source === 'tesla-ble';
     $('musicPanel').hidden = false;
+    $('lyricsEmpty').hidden = true;
     $('musicSource').textContent = tesla ? 'Tesla蓝牙' : music.source === 'manual' ? '手动选曲' : '自动识曲';
     $('musicTitle').textContent = hasTrack ? text(music.title) : tesla ? '等待车辆播放信息' : music.status === 'unavailable' ? '识曲服务不可用' : music.status === 'recognizing' ? '正在识别音乐' : lyricsOnly ? '等待周围音乐' : '等待应用音频';
     $('musicArtist').textContent = hasTrack ? text(music.artist) : '';
     const validPosition = typeof music.position === 'number' && Number.isFinite(music.position) && music.position >= 0 && music.position <= 86400;
+    $('musicPosition').textContent = '';
     if (hasTrack && validPosition) {
       const seconds = Math.floor(music.position);
       $('musicPosition').textContent = `约 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     }
-    const lines = music.status === 'lyrics' && (!tesla || validPosition) && Array.isArray(music.lines) ? music.lines.slice(0, 24).filter(line => typeof line === 'string') : [];
-    $('musicLines').replaceChildren(...lines.map(line => { const node = document.createElement('p'); node.textContent = text(line); return node; }));
+    const rawLines = music.status === 'lyrics' && (!tesla || validPosition) && Array.isArray(music.lines) ? music.lines : [];
+    // Indices refer to the original array, never to the filtered display array.
+    const active = Number.isInteger(music.activeLineIndex) && music.activeLineIndex >= 0 &&
+      music.activeLineIndex < rawLines.length && music.activeLineIndex < 24 &&
+      typeof rawLines[music.activeLineIndex] === 'string' && rawLines[music.activeLineIndex].trim() !== '' ? music.activeLineIndex : -1;
+    const lines = rawLines.slice(0, 24).map((line, index) => ({line, index})).filter(item => typeof item.line === 'string');
+    const identity = JSON.stringify([music.source, text(music.title), text(music.artist), lines, active]);
+    if (identity !== lyricIdentity) {
+      $('musicLines').replaceChildren(...lines.map(({line, index}) => {
+        const node = document.createElement('p'); node.textContent = text(line);
+        node.className = index === active ? 'lyric-line is-current' : 'lyric-line';
+        if (index === active) node.setAttribute('aria-current', 'true');
+        return node;
+      }));
+      lyricIdentity = identity;
+    }
+    $('lyricSync').textContent = active >= 0 ? '当前句 · 估算位置' : lines.length ? '尚无当前句位置' : '等待歌词';
     $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 暂无匹配歌词。' :
       music.status === 'loading' ? '正在获取 LRCLIB 歌词。' : music.status === 'lyrics' ?
         (tesla ? '歌词：LRCLIB · 车辆进度采样间短暂估算，可能漂移；不保证歌词版本一致。' : '歌词：LRCLIB · 估算显示，可能不同步。') : '';
     $('musicMessage').textContent = tesla ?
       (music.status === 'waiting' ? '请在 Tesla 播放歌曲，并保持 iPhone 上的 Cabin 在前台与车辆蓝牙连接。' :
+        !validPosition && hasTrack ? '已读取车辆曲目，等待播放进度；暂不显示歌词。' :
         music.status === 'matched' ? '已读取车辆曲目；播放状态或进度缺失时不滚动歌词。' : '') :
       music.status === 'unavailable' ? (lyricsOnly ? '请在 iPhone 检查麦克风权限和网络连接。' : '请在 iPhone 检查识曲设置，或手动选曲。') :
       music.status === 'waiting' ? (lyricsOnly ? '请让 iPhone 听到车内音响或扬声器播放的音乐。' : '请在手机播放音乐，并开启识曲。') : music.status === 'recognizing' ? '请保持音乐播放。' : '';
@@ -375,7 +394,10 @@
         clearImage(); lastLiveAt = 0; snapshotMode = false;
       }
       lyricsOnly = nextLyricsOnly;
+      $('viewer').classList.toggle('lyrics-only', lyricsOnly);
       $('stage').hidden = lyricsOnly; $('screenModes').hidden = lyricsOnly;
+      $('fontSize').parentElement.hidden = lyricsOnly;
+      if (!lyricsOnly) $('lyricsEmpty').hidden = true;
       const demo = state.source === 'demo';
       $('demoBanner').hidden = !demo;
       $('viewerTitle').textContent = lyricsOnly ? '音乐与歌词' : demo ? 'DEMO · 原创演示' : '本地屏幕共享';
@@ -453,7 +475,10 @@
   setInterval(() => {
     mediaPlaybackWatchdog();
     if (enabled && paired && !lyricsOnly && lastLiveAt && Date.now() - lastLiveAt > 4000) clearImage('画面已过期', '旧画面与文字已隐藏，正在等待新状态。');
-    if (musicFreshness && !musicIsFresh(musicFreshness)) clearMusic();
+    if (musicFreshness && !musicIsFresh(musicFreshness)) {
+      clearMusic();
+      if (lyricsOnly) status('歌词已过期 · 等待新状态');
+    }
   }, 500);
   if (enabled) void poll(); else status('本页已断开 · 等待手动配对');
 })();

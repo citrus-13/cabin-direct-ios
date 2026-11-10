@@ -349,6 +349,25 @@ run("LRC byte, line, text and expanded timestamp bounds") {
     check(DirectLyricTimeline(lrc: expanded).lines.count <= 8_000, "Expanded timestamps bounded across all lines")
 }
 
+run("Lyric presentation carries the exact current index through progression and seeking") {
+    let timeline = DirectLyricTimeline(lrc: "[00:01]First\n[00:02]Second\n[00:03]Third\n[00:04]Fourth\n[00:05]Fifth")
+    for position in [-1.0, 0, .nan, .infinity] {
+        let value = timeline.presentation(at: position)
+        check(value.lines.isEmpty && value.activeLineIndex == nil, "No current lyric for invalid or early position")
+    }
+    let first = timeline.presentation(at: 1)
+    check(first.lines == ["First", "Second", "Third"] && first.activeLineIndex == 0, "First line has no invented previous context")
+    let second = timeline.presentation(at: 2)
+    check(second.lines == ["First", "Second", "Third", "Fourth"] && second.activeLineIndex == 1, "Second lyric advances explicit current index")
+    let middle = timeline.presentation(at: 3.5)
+    check(middle.lines == ["Second", "Third", "Fourth", "Fifth"] && middle.activeLineIndex == 1, "Window advances while preserving one previous and two next")
+    let last = timeline.presentation(at: 5)
+    check(last.lines == ["Fourth", "Fifth"] && last.activeLineIndex == 1, "Last line remains current without fabricated following context")
+    check(timeline.presentation(at: 1).activeLineIndex == 0, "Backward seek restores first current line")
+    check(timeline.visible(at: 3.5) == middle.lines, "Legacy visible API retains exact window")
+    check(DirectLyricTimeline(lrc: "").presentation(at: 2).activeLineIndex == nil, "Empty timeline has no current index")
+}
+
 run("Legacy shared configuration remains native-compilable") {
     let base = try SessionConfiguration.validateServer("http://192.168.1.2:8787")
     rejects("Public plaintext server rejected") { _ = try SessionConfiguration.validateServer("http://example.com") }

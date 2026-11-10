@@ -77,13 +77,17 @@ public struct LocalMusicState: Codable {
     public var title: String
     public var artist: String
     public var lines: [String]
+    /// Index into this transmitted window, never the full lyric timeline.
+    /// Nil for legacy producers or when vehicle playback cannot identify a current line.
+    public var activeLineIndex: Int?
     public var updatedAt: Double
     public var matchedAt: Double
     public var position: Double?
     public var source: String
     public var message: String
-    public init(status: String = "disabled", title: String = "", artist: String = "", lines: [String] = [], updatedAt: Double = 0, matchedAt: Double = 0, position: Double? = nil, source: String = "shazam", message: String = "") {
+    public init(status: String = "disabled", title: String = "", artist: String = "", lines: [String] = [], activeLineIndex: Int? = nil, updatedAt: Double = 0, matchedAt: Double = 0, position: Double? = nil, source: String = "shazam", message: String = "") {
         self.status = status; self.title = title; self.artist = artist; self.lines = lines
+        self.activeLineIndex = activeLineIndex
         self.updatedAt = updatedAt; self.matchedAt = matchedAt; self.position = position
         self.source = source; self.message = message
     }
@@ -213,7 +217,7 @@ public final class LocalHTTPServer {
                 self.pendingFrameLock.lock()
                 let latest = self.pendingFrame; self.pendingFrame = nil; self.frameDrainScheduled = false
                 self.pendingFrameLock.unlock()
-                self.frame = latest
+                self.frame = Self.independentLyrics(self.state.source) ? nil : latest
             }
         }
     }
@@ -222,14 +226,14 @@ public final class LocalHTTPServer {
             var safe = state
             safe.captureState = String(safe.captureState.prefix(32)); safe.lyricState = String(safe.lyricState.prefix(32))
             safe.lyricLines = Array(safe.lyricLines.prefix(24)).map { String($0.prefix(200)) }
-            safe.source = ["visible-screen", "demo", "microphone-lyrics"].contains(safe.source) ? safe.source : "visible-screen"
+            safe.source = ["visible-screen", "demo", "microphone-lyrics", "tesla-ble-lyrics"].contains(safe.source) ? safe.source : "visible-screen"
             safe.message = String(safe.message.prefix(512))
             if !safe.frameUpdatedAt.isFinite { safe.frameUpdatedAt = 0 }
             if !safe.lyricUpdatedAt.isFinite { safe.lyricUpdatedAt = 0 }
-            safe.music = self.safeMusic(safe.music, captureState: safe.captureState)
+            safe.music = self.safeMusic(safe.music, captureState: safe.captureState, source: safe.source)
             safe.media = nil // Only server-validated, fresh fragments advertise a stream.
-            if safe.source == "microphone-lyrics" || ["paused", "ended", "stopped", "error"].contains(safe.captureState) { self.clearMediaOnQueue() }
-            if safe.source == "microphone-lyrics" || self.state.source == "microphone-lyrics" { self.frame = nil }
+            if Self.independentLyrics(safe.source) || ["paused", "ended", "stopped", "error"].contains(safe.captureState) { self.clearMediaOnQueue() }
+            if Self.independentLyrics(safe.source) || Self.independentLyrics(self.state.source) { self.frame = nil }
             self.state = safe
             if ["paused", "ended", "stopped", "waiting", "error"].contains(safe.captureState) { self.frame = nil }
         }
@@ -240,7 +244,7 @@ public final class LocalHTTPServer {
     /// Synchronous bounded admission prevents queued retained fragment Data growing without limit.
     public func updateMediaInitialization(_ value: LocalMediaInitialization) {
         mediaSync {
-            guard self.running, self.state.source != "microphone-lyrics",
+            guard self.running, !Self.independentLyrics(self.state.source),
                   UUID(uuidString: value.generation) != nil, value.generation.count == 36,
                   !self.retiredMedia.contains(value.generation),
                   value.data.count >= 8, value.data.count <= 65_536,
@@ -255,7 +259,7 @@ public final class LocalHTTPServer {
     }
     public func updateMediaFragment(_ value: LocalMediaFragment) {
         mediaSync {
-            guard self.running, self.state.source != "microphone-lyrics",
+            guard self.running, !Self.independentLyrics(self.state.source),
                   !["paused", "ended", "stopped", "error"].contains(self.state.captureState),
                   self.mediaInitialization?.generation == value.generation else { return }
             let time = self.now()
@@ -296,7 +300,7 @@ public final class LocalHTTPServer {
         return mime.range(of: pattern, options: .regularExpression) != nil
     }
     private func currentMedia() -> LocalMediaDescriptor? {
-        guard state.source != "microphone-lyrics", ["live", "broadcasting", "running", "capturing"].contains(state.captureState),
+        guard !Self.independentLyrics(state.source), ["live", "broadcasting", "running", "capturing"].contains(state.captureState),
               let initialization = mediaInitialization, let first = mediaFragments.first, first.independent,
               let last = mediaFragments.last, now() - last.updatedAt <= Self.staleAfter, last.updatedAt <= now() + 1 else { return nil }
         return .init(generation: initialization.generation, mime: initialization.mime, hasAudio: initialization.hasAudio, updatedAt: last.updatedAt)
@@ -427,13 +431,20 @@ public final class LocalHTTPServer {
         return cookies.count == 1 && equal(String(cookies[0].dropFirst(13)), configuration.token)
     }
     private func currentFrame() -> LocalJPEGFrame? {
-        guard state.source != "microphone-lyrics" else { return nil }
+        guard !Self.independentLyrics(state.source) else { return nil }
         guard ["live", "broadcasting", "running", "capturing"].contains(state.captureState), let frame, now() - frame.updatedAt <= Self.staleAfter, now() >= frame.updatedAt - 1 else { return nil }; return frame
     }
-    private func safeMusic(_ value: LocalMusicState?, captureState: String) -> LocalMusicState? {
+    private static func independentLyrics(_ source: String) -> Bool {
+        ["microphone-lyrics", "tesla-ble-lyrics"].contains(source)
+    }
+    private func safeMusic(_ value: LocalMusicState?, captureState: String, source: String) -> LocalMusicState? {
         guard var music = value else { return nil }
         let statuses = ["disabled", "waiting", "recognizing", "matched", "loading", "lyrics", "no-lyrics", "unavailable", "stale", "paused"]
-        let trusted = statuses.contains(music.status) && ["shazam", "manual"].contains(music.source)
+        // A vehicle payload is valid only in the dedicated no-capture mode. Other
+        // producers cannot opt into its trust/freshness rules by renaming music.
+        let tesla = source == "tesla-ble-lyrics" && music.source == "tesla-ble"
+        let trustedSource = tesla || (source != "tesla-ble-lyrics" && ["shazam", "manual"].contains(music.source))
+        let trusted = statuses.contains(music.status) && trustedSource && (!tesla || music.status != "recognizing")
         if !trusted { music = .init(status: "unavailable") }
         music.title = String(music.title.prefix(200)); music.artist = String(music.artist.prefix(200))
         music.lines = Array(music.lines.prefix(24)).map { String($0.prefix(200)) }
@@ -445,11 +456,14 @@ public final class LocalHTTPServer {
         if ["paused", "ended", "stopped", "error"].contains(captureState) { music.status = captureState == "paused" ? "paused" : "unavailable" }
         else if !["disabled", "paused", "unavailable"].contains(music.status),
                 !(music.updatedAt > 0 && music.updatedAt <= current && current - music.updatedAt <= Self.staleAfter &&
-                  (!hasTrack || (music.matchedAt > 0 && music.matchedAt <= current && current - music.matchedAt <= (music.source == "manual" ? 600 : 30)))) { music.status = "stale" }
+                  (!hasTrack || (music.matchedAt > 0 && music.matchedAt <= current && current - music.matchedAt <= (tesla ? 6 : music.source == "manual" ? 600 : 30)))) { music.status = "stale" }
+        if tesla, music.status == "lyrics", music.position == nil { music.status = "matched" }
         if !["matched", "loading", "lyrics", "no-lyrics"].contains(music.status) {
             music.title = ""; music.artist = ""; music.lines = []; music.position = nil; music.matchedAt = 0
             if ["stale", "paused"].contains(music.status) { music.message = "" }
         } else if music.status != "lyrics" { music.lines = [] }
+        if !tesla || music.status != "lyrics" || music.position == nil ||
+            music.activeLineIndex.map({ !music.lines.indices.contains($0) }) != false { music.activeLineIndex = nil }
         // Invalid/future timestamps never cross the JSON boundary.
         if music.updatedAt > current || music.updatedAt <= 0 { music.updatedAt = 0 }
         if music.matchedAt > current || music.matchedAt <= 0 { music.matchedAt = 0 }
@@ -457,9 +471,9 @@ public final class LocalHTTPServer {
     }
     private func publicState() -> LocalPublicState {
         var result = state
-        result.music = safeMusic(result.music, captureState: result.captureState)
+        result.music = safeMusic(result.music, captureState: result.captureState, source: result.source)
         result.media = currentMedia()
-        if result.source == "microphone-lyrics" {
+        if Self.independentLyrics(result.source) {
             result.sequence = 0; result.frameUpdatedAt = 0; result.width = 0; result.height = 0
             result.lyricState = "disabled"; result.lyricLines = []; result.lyricUpdatedAt = 0
             return result
@@ -499,7 +513,7 @@ public final class LocalHTTPServer {
             guard let frame = currentFrame() else { respond(client, 204); return }
             respond(client, 200, data: frame.data, type: "image/jpeg")
         default:
-            guard state.source != "microphone-lyrics" else { respond(client, 204); return }
+            guard !Self.independentLyrics(state.source) else { respond(client, 204); return }
             guard clients.values.filter({ $0.streaming }).count < 2 else { respond(client, 429); return }
             client.streaming = true
             send(client, data: Data(("HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=cabinframe\r\n" + securityHeaders + "Connection: close\r\n\r\n").utf8), closeAfter: false)

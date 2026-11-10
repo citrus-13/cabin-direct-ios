@@ -256,7 +256,10 @@ final class DirectLyricsMode: ObservableObject {
             value.title = snapshot.title; value.artist = snapshot.artist
             value.matchedAt = snapshot.observedAt; value.position = snapshot.position
             value.status = snapshot.canScroll ? lookupState : "matched"
-            if snapshot.canScroll, let position = snapshot.position { value.lines = timeline?.visible(at: position) ?? [] }
+            if snapshot.canScroll, let position = snapshot.position, let timeline {
+                let presentation = timeline.presentation(at: position)
+                value.lines = presentation.lines; value.activeLineIndex = presentation.activeLineIndex
+            }
             value.message = snapshot.playing == false ? "车辆暂停；进度不前移。" :
                 snapshot.canScroll ? "进度来自车辆；采样间短暂估算，歌词版本仍可能不匹配。" : "车辆播放状态或进度缺失，不推测歌词滚动。"
         } else { value.message = "等待新鲜的车辆播放信息，旧歌词已隐藏。" }

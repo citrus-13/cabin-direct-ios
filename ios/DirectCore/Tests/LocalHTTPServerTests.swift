@@ -294,6 +294,78 @@ final class LocalHTTPServerTests {
             XCTAssertTrue(safe.updatedAt.isFinite); XCTAssertTrue(safe.matchedAt.isFinite)
         }
     }
+    func testTeslaLyricsRealHTTPContractAndPrivacy() throws {
+        let time = clock.now()
+        func state(capture: String = "waiting", source: String = "tesla-ble-lyrics", musicSource: String = "tesla-ble",
+                   status: String = "lyrics", position: Double? = 2, index: Int? = 1, matchedAt: Double? = nil) -> LocalPublicState {
+            .init(captureState: capture, sequence: 42, frameUpdatedAt: time, width: 960, height: 540,
+                  lyricState: "ready", lyricLines: ["private screen"], lyricUpdatedAt: time, source: source,
+                  music: .init(status: status, title: "Synthetic track", artist: "Synthetic artist",
+                               lines: ["Previous", "Current", "Next"], activeLineIndex: index,
+                               updatedAt: time, matchedAt: matchedAt ?? time, position: position, source: musicSource))
+        }
+        server.updateState(state(capture: "live"))
+        server.updateFrame(.init(data: Data([0xff, 0xd8, 0xff, 0xd9]), sequence: 43, updatedAt: time, width: 960, height: 540))
+        let generation = UUID().uuidString
+        server.updateMediaInitialization(.init(generation: generation, data: Data(repeating: 1, count: 8),
+                                               mime: "video/mp4; codecs=\"avc1.42E01E\"", hasAudio: false))
+        server.updateMediaFragment(.init(generation: generation, sequence: 1, data: Data(repeating: 2, count: 8),
+                                        start: 0, duration: 1, independent: true, updatedAt: time))
+        XCTAssertTrue(try request("/api/state").contains("401"))
+        let response = try request("/api/state", headers: auth)
+        let decoded = try JSONDecoder().decode(LocalPublicState.self, from: Data(response.components(separatedBy: "\r\n\r\n").last!.utf8))
+        XCTAssertEqual(decoded.source, "tesla-ble-lyrics"); XCTAssertEqual(decoded.music?.source, "tesla-ble")
+        XCTAssertEqual(decoded.music?.status, "lyrics"); XCTAssertEqual(decoded.music?.lines, ["Previous", "Current", "Next"])
+        XCTAssertEqual(decoded.music?.activeLineIndex, 1); XCTAssertEqual(decoded.music?.position, 2)
+        XCTAssertEqual(decoded.sequence, 0); XCTAssertEqual(decoded.frameUpdatedAt, 0)
+        XCTAssertEqual(decoded.width, 0); XCTAssertEqual(decoded.height, 0); XCTAssertEqual(decoded.lyricLines, [])
+        XCTAssertEqual(decoded.lyricState, "disabled"); XCTAssertEqual(decoded.lyricUpdatedAt, 0); XCTAssertTrue(decoded.media == nil)
+        XCTAssertFalse(response.contains("private screen")); XCTAssertFalse(response.contains(token))
+        for path in ["/frame.jpg", "/stream.mjpeg", "/media/index", "/media/\(generation)/init.mp4", "/media/\(generation)/1.m4s"] {
+            XCTAssertTrue(try request(path, headers: auth).contains("204 No Content"))
+        }
+        for source in ["visible-screen", "demo", "microphone-lyrics", "TESLA-BLE-LYRICS", "tesla-ble-lyrics-extra"] {
+            server.updateState(state(source: source))
+            XCTAssertEqual(try musicState()?.status, "unavailable"); XCTAssertEqual(try musicState()?.activeLineIndex, nil)
+        }
+        for source in ["manual", "shazam", "tesla-ble-extra"] {
+            server.updateState(state(musicSource: source))
+            XCTAssertEqual(try musicState()?.status, "unavailable")
+        }
+        for status in ["recognizing", "unknown"] {
+            server.updateState(state(status: status))
+            XCTAssertEqual(try musicState()?.status, "unavailable")
+        }
+        for position: Double? in [nil, -.infinity, .infinity, .nan, -1, 86_401] {
+            server.updateState(state(position: position))
+            let value = try musicState()!
+            XCTAssertEqual(value.status, "matched"); XCTAssertEqual(value.position, nil)
+            XCTAssertEqual(value.lines, []); XCTAssertEqual(value.activeLineIndex, nil)
+        }
+        for index: Int? in [nil, -1, 3, Int.max] {
+            server.updateState(state(index: index))
+            XCTAssertEqual(try musicState()?.activeLineIndex, nil)
+        }
+        for status in ["waiting", "matched", "loading", "no-lyrics", "stale", "paused", "unavailable", "disabled"] {
+            server.updateState(state(status: status))
+            XCTAssertEqual(try musicState()?.lines, []); XCTAssertEqual(try musicState()?.activeLineIndex, nil)
+        }
+        for capture in ["paused", "ended", "stopped", "error"] {
+            server.updateState(state(capture: capture))
+            let value = try musicState()!
+            XCTAssertEqual(value.title, ""); XCTAssertEqual(value.lines, []); XCTAssertEqual(value.activeLineIndex, nil)
+        }
+        server.updateState(state(matchedAt: time - 5))
+        XCTAssertEqual(try musicState()?.status, "lyrics")
+        server.updateState(state(matchedAt: time - 7))
+        XCTAssertEqual(try musicState()?.status, "stale"); XCTAssertEqual(try musicState()?.activeLineIndex, nil)
+        server.updateState(state())
+        clock.advance(5)
+        XCTAssertEqual(try musicState()?.status, "stale"); XCTAssertEqual(try musicState()?.activeLineIndex, nil)
+        // Optional index remains absent in older producers' Codable payloads.
+        let legacy = Data("{\"status\":\"lyrics\",\"title\":\"Old\",\"artist\":\"\",\"lines\":[\"Line\"],\"updatedAt\":1,\"matchedAt\":1,\"source\":\"manual\",\"message\":\"\"}".utf8)
+        XCTAssertEqual(try JSONDecoder().decode(LocalMusicState.self, from: legacy).activeLineIndex, nil)
+    }
     func testMusicFreshnessAndPauseClearMetadata() throws {
         let time = clock.now()
         for (source, matchAge, expected) in [("shazam", 29.0, "lyrics"), ("shazam", 31.0, "stale"), ("manual", 599.0, "lyrics"), ("manual", 601.0, "stale")] {
@@ -476,19 +548,20 @@ final class LocalHTTPServerTests {
 @main private struct TestRunner {
     static func main() {
         let names = ["health-assets-auth", "pair-cookie", "pair-limits", "host-origin-smuggling", "frame-staleness-pause", "multipart-viewer-cap", "slow-headers", "session-expiry", "backpressure", "connection-cap-pipelining", "fixed-port-source-bounds", "browser-unpair", "ipv6-allowlist", "stop-ack-rapid-restart", "startup-timeout", "music-auth-video-independent", "music-sanitize-nonfinite", "music-freshness-pause", "microphone-lyrics-source-frames"] + ["media-authenticated-paths", "media-ring-generation", "media-lifecycle-validation", "media-initialization-immutability"]
+        let allNames = names + ["tesla-lyrics-real-http-contract-privacy"]
         var passed = 0
-        for index in names.indices {
+        for index in allNames.indices {
             let suite = LocalHTTPServerTests(), before = assertionFailures
             do {
                 try suite.setUpWithError()
                 let tests: [() throws -> Void] = [suite.testHealthAssetsAndAuthentication, suite.testPairCookieIsHttpOnlyAndTokenNeverInJSON, suite.testGlobalPairAttemptLimitAndWindow, suite.testOriginHostAndRequestSmugglingRejected, suite.testFramesPauseStaleAndNilClear, suite.testMultipartStreamingAndViewerCap, suite.testSlowClientsAndHeaderLimit, suite.testExpiryClosesActiveStreamAndListener, suite.testBackpressureDoesNotBlockStateAndSkipsIntermediateFrames, suite.testConnectionCapAndNoPipelining, suite.testFixedPortBindingAndSourceBounds, suite.testUnpairOnlyClearsRequestingBrowserCookie, suite.testIPv6AllowlistIsExactNormalizedAndBounded, suite.testStopAcknowledgesCleanupAndRapidSamePortRestart, suite.testStartupDeadlineFailsOnceAndCleansListener]
                 let musicTests: [() throws -> Void] = [suite.testMusicAuthenticatedIndependentOfVideoAndOCR, suite.testMusicBoundsSourcesStatusesAndNonfiniteValues, suite.testMusicFreshnessAndPauseClearMetadata, suite.testMicrophoneLyricsSourceRejectsFramesAndNormalizesUnknownSources] + [suite.testMediaAuthenticatedFreshIndexAndPaths, suite.testMediaBoundedWindowGenerationAndDiscontinuity, suite.testMediaPauseLyricsAndInitializationValidation, suite.testMediaChangedInitializationRetiresEpoch]
-                try (tests + musicTests)[index]()
-            } catch { XCTFail("\(names[index]): \(error)") }
+                try (tests + musicTests + [suite.testTeslaLyricsRealHTTPContractAndPrivacy])[index]()
+            } catch { XCTFail("\(allNames[index]): \(error)") }
             suite.tearDown()
-            if before == assertionFailures { passed += 1; print("PASS \(names[index])") }
+            if before == assertionFailures { passed += 1; print("PASS \(allNames[index])") }
         }
-        print("Native macOS TCP tests: \(passed)/\(names.count) passed; \(assertionFailures) assertion failures. Not an iOS build or device test.")
+        print("Native macOS TCP tests: \(passed)/\(allNames.count) passed; \(assertionFailures) assertion failures. Not an iOS build or device test.")
         exit(assertionFailures == 0 ? 0 : 1)
     }
 }

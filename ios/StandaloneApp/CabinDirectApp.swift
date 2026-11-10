@@ -314,7 +314,11 @@ struct DirectSetupView: View {
             Section {
                 Text(music.title).font(.headline)
                 Text(music.artist).foregroundStyle(.secondary)
-                ForEach(Array(music.lines.enumerated()), id: \.offset) { line in Text(line.element).font(.title3) }
+                ForEach(Array(music.lines.enumerated()), id: \.offset) { line in
+                    Text(line.element)
+                        .font(.title3.weight(music.activeLineIndex == line.offset ? .bold : .regular))
+                        .foregroundStyle(music.activeLineIndex == line.offset ? Color.teal : Color.secondary)
+                }
             }.accessibilityIdentifier("lyrics.track")
         }
         Section("车机连接地址") {
