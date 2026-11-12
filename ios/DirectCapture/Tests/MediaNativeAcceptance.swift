@@ -176,6 +176,11 @@ private func audioDecodeBase(_ data: Data) -> Double {
         requireMedia(reader.status == .completed, "fMP4 demux/decode did not complete: \(String(describing: reader.error))")
         requireMedia(videoCount >= 10 && audioCount > 48000 && audible, "decoded media missing video or real tone")
         requireMedia(abs(videoStart! - audioStart!) < 0.25, "track clocks not aligned to shared source origin")
+        if videoMarkers.count < 4 || audioMarkers.count < 4 {
+            // Only generated fixture counters/timestamps. stderr survives fatalError buffering.
+            let diagnostic = "Synthetic transition failure: video=\(videoMarkers), audio=\(audioMarkers), generations=\(beforePause.0.count), fragmentCounts=\(beforePause.1.values.map(\.count).sorted()), selectedFragments=\(best.value.count), decodedFrames=\(videoCount), decodedSamples=\(audioCount)\n"
+            FileHandle.standardError.write(Data(diagnostic.utf8))
+        }
         requireMedia(videoMarkers.count >= 4 && audioMarkers.count >= 4, "missing synthetic flash/tone transitions")
         let offsets = videoMarkers.map { marker in
             audioMarkers.filter { $0.1 == marker.1 }.map { abs($0.0 - marker.0) }.min() ?? Double.infinity

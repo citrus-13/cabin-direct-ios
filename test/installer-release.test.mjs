@@ -71,6 +71,7 @@ test('separate public manual workflow adds only bounded draft staging authority'
     'permissions:\n  contents: read', '    permissions:\n      contents: write',
     'CABIN_IOS_CONFIGURATION: Release', 'node scripts/stage-installer-release.mjs']) assert.ok(source.includes(fragment), fragment);
   assert.ok(source.indexOf('node scripts/prepare-installer-input.mjs') < source.indexOf('GH_TOKEN:'));
+  assert.ok(source.includes('npm test -- --test-concurrency=1'), 'Codec fixtures run without competing test-file compilers; no tests are skipped');
   assert.doesNotMatch(source, /secrets\.|upload-artifact|continue-on-error|self-hosted|xlarge|publish-preview|draft=false|allowProvisioning/);
   for (const match of source.matchAll(/uses:\s*(\S+)/g)) assert.match(match[1], /^actions\/[a-z-]+@[a-f0-9]{40}$/);
   const experiment = fs.readFileSync(new URL('../.github/workflows/cabin-installer-check.yml', import.meta.url), 'utf8');

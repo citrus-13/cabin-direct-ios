@@ -71,7 +71,9 @@ jobs:
         run: node scripts/build-ios.mjs
       - name: Run all source and native contract tests
         run: |
-          npm test 2>&1 | tee "$RUNNER_TEMP/cabin-installer-tests.tap"
+          # Real-time codec fixtures must not compete with other Swift compilations.
+          # Keep every assertion and the zero-skips gate; serialize test files only.
+          npm test -- --test-concurrency=1 2>&1 | tee "$RUNNER_TEMP/cabin-installer-tests.tap"
           node --input-type=module <<'TEST_JS'
           import fs from 'node:fs';
           const tap = fs.readFileSync(process.env.RUNNER_TEMP + '/cabin-installer-tests.tap', 'utf8');
