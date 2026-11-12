@@ -33,7 +33,7 @@ final class CabinDirectUITests: XCTestCase {
         XCTAssertTrue(element("about.heading", in: app).waitForExistence(timeout: 5))
         let version = element("about.version", in: app)
         XCTAssertTrue(version.waitForExistence(timeout: 5))
-        XCTAssertEqual(version.label, "版本 0.8.0（构建 1）")
+        XCTAssertEqual(version.label, "版本 0.8.0（构建 2）")
         attach("support-light", from: app)
     }
 

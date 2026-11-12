@@ -317,6 +317,15 @@ final class LocalHTTPServerTests {
         XCTAssertEqual(decoded.source, "tesla-ble-lyrics"); XCTAssertEqual(decoded.music?.source, "tesla-ble")
         XCTAssertEqual(decoded.music?.status, "lyrics"); XCTAssertEqual(decoded.music?.lines, ["Previous", "Current", "Next"])
         XCTAssertEqual(decoded.music?.activeLineIndex, 1); XCTAssertEqual(decoded.music?.position, 2)
+        let context = (0..<11).map { "Synthetic line \($0)" }
+        server.updateState(.init(captureState: "waiting", source: "tesla-ble-lyrics",
+                                 music: .init(status: "lyrics", title: "Synthetic track", lines: context,
+                                              activeLineIndex: 4, updatedAt: time, matchedAt: time,
+                                              position: 7, source: "tesla-ble")))
+        let contextResponse = try request("/api/state", headers: auth)
+        let contextState = try JSONDecoder().decode(LocalPublicState.self, from: Data(contextResponse.components(separatedBy: "\r\n\r\n").last!.utf8))
+        XCTAssertEqual(contextState.music?.lines, context)
+        XCTAssertEqual(contextState.music?.activeLineIndex, 4)
         XCTAssertEqual(decoded.sequence, 0); XCTAssertEqual(decoded.frameUpdatedAt, 0)
         XCTAssertEqual(decoded.width, 0); XCTAssertEqual(decoded.height, 0); XCTAssertEqual(decoded.lyricLines, [])
         XCTAssertEqual(decoded.lyricState, "disabled"); XCTAssertEqual(decoded.lyricUpdatedAt, 0); XCTAssertTrue(decoded.media == nil)

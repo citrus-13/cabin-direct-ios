@@ -368,6 +368,26 @@ run("Lyric presentation carries the exact current index through progression and 
     check(DirectLyricTimeline(lrc: "").presentation(at: 2).activeLineIndex == nil, "Empty timeline has no current index")
 }
 
+run("Tesla lyric context tracks exact index across boundaries and seeks") {
+    let timeline = DirectLyricTimeline(lrc: (1...15).map { String(format: "[00:%02d]Line %02d", $0, $0) }.joined(separator: "\n"))
+    let middle = timeline.teslaPresentation(at: 7)
+    check(middle.lines == (3...13).map { String(format: "Line %02d", $0) } && middle.activeLineIndex == 4, "Middle contains four previous and six following")
+    let first = timeline.teslaPresentation(at: 1)
+    check(first.lines.count == 7 && first.activeLineIndex == 0, "First line has six following")
+    let last = timeline.teslaPresentation(at: 15)
+    check(last.lines.count == 5 && last.activeLineIndex == 4 && last.lines.last == "Line 15", "Last line has four previous")
+    check(timeline.teslaPresentation(at: 12).lines[4] == "Line 12", "Forward seek selects current line")
+    check(timeline.teslaPresentation(at: 2).activeLineIndex == 1, "Backward seek selects current line")
+    for position in [-1.0, 0, .nan, .infinity, -.infinity] {
+        let value = timeline.teslaPresentation(at: position)
+        check(value.lines.isEmpty && value.activeLineIndex == nil, "Invalid or early position has no lyric")
+    }
+    let short = DirectLyricTimeline(lrc: "[00:01]One\n[00:02]Two").teslaPresentation(at: 2)
+    check(short.lines == ["One", "Two"] && short.activeLineIndex == 1, "Short track retains available context")
+    let duplicate = DirectLyricTimeline(lrc: "[00:01]B\n[00:01]A\n[00:02]C").teslaPresentation(at: 1)
+    check(duplicate.lines == ["A", "B", "C"] && duplicate.activeLineIndex == 1, "Duplicate timestamps preserve existing ordering and last-current behavior")
+}
+
 run("Legacy shared configuration remains native-compilable") {
     let base = try SessionConfiguration.validateServer("http://192.168.1.2:8787")
     rejects("Public plaintext server rejected") { _ = try SessionConfiguration.validateServer("http://example.com") }

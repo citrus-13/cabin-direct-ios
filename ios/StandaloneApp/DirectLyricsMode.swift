@@ -257,7 +257,7 @@ final class DirectLyricsMode: ObservableObject {
             value.matchedAt = snapshot.observedAt; value.position = snapshot.position
             value.status = snapshot.canScroll ? lookupState : "matched"
             if snapshot.canScroll, let position = snapshot.position, let timeline {
-                let presentation = timeline.presentation(at: position)
+                let presentation = timeline.teslaPresentation(at: position)
                 value.lines = presentation.lines; value.activeLineIndex = presentation.activeLineIndex
             }
             value.message = snapshot.playing == false ? "车辆暂停；进度不前移。" :

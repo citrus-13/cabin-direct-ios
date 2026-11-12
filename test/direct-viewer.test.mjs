@@ -5,9 +5,19 @@ import vm from 'node:vm';
 
 const source = readFileSync(new URL('../ios/StandaloneWeb/direct.js', import.meta.url), 'utf8');
 const html = readFileSync(new URL('../ios/StandaloneWeb/index.html', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../ios/StandaloneWeb/direct.css', import.meta.url), 'utf8');
 const flush = async () => { for (let i = 0; i < 80; i++) await Promise.resolve(); };
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 const bytes = value => value instanceof Uint8Array ? value : new TextEncoder().encode(JSON.stringify(value));
+
+test('lyrics presentation stays local and motion-safe', () => {
+  assert.doesNotMatch(html, /\blyric-(?:art|orbit|art-mark)\b/);
+  assert.match(css, /prefers-reduced-motion\s*:\s*reduce/);
+  assert.doesNotMatch(css, /@import\b|url\(\s*['"]?(?:https?:)?\/\//i);
+  assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*['"](?:https?:)?\/\//i);
+  assert.doesNotMatch(css, /\banimation(?:-iteration-count)?\s*:[^;}]*\binfinite\b/i);
+  assert.doesNotMatch(css, /\b(?:backdrop-filter|filter)\s*:[^;}]*blur\s*\(/i);
+});
 function delayedBody(promise) {
   let read = false;
   return {getReader: () => ({read: async () => read ? {done: true} : (read = true, {done: false, value: bytes(await promise)}), cancel: async () => {}, releaseLock() {}})};
@@ -16,8 +26,9 @@ function response(status, body = {}) { return { status, ok: status >= 200 && sta
 
 // Minimal DOM and controllable fetch/timer boundaries. No dependency, browser, network,
 // real credential or media capture. These tests do not establish rendering/decoder support.
-function viewer({ disconnected = false, mse = false, mseSupported = true, autoAppend = true } = {}) {
+function viewer({ disconnected = false, mse = false, mseSupported = true, autoAppend = true, reduceMotion = false, queuedRAF = false } = {}) {
   const handlers = new Map(), timers = new Map(), intervals = [], requests = [], nodes = new Map(), storage = new Map();
+  const frames = [];
   let timerID = 0, now = 1_000_000, created = 0;
   if (disconnected) storage.set('cabin-disconnected', '1');
   function element() {
@@ -26,13 +37,16 @@ function viewer({ disconnected = false, mse = false, mseSupported = true, autoAp
       classList: { toggle() {} },
       addEventListener(name, fn) { if (!events.has(name)) events.set(name, new Set()); events.get(name).add(fn); },
       removeEventListener(name, fn) { events.get(name)?.delete(fn); },
-      fire(name) { for (const fn of [...(events.get(name) || [])]) fn({ preventDefault() {} }); },
+      fire(name, extra = {}) { for (const fn of [...(events.get(name) || [])]) fn({ preventDefault() {}, ...extra }); },
       setAttribute(name, value) { attributes.set(name, value); },
       hasAttribute(name) { return attributes.has(name); },
       getAttribute(name) { return attributes.get(name); },
       removeAttribute(name) { attributes.delete(name); },
       set src(value) { attributes.set('src', value); }, get src() { return attributes.get('src'); },
-      replaceChildren(...children) { this.children = children; },
+      replaceChildren(...children) { this.children = children; children.forEach((child, i) => { child.offsetTop = i * 80; child.offsetHeight = 60; }); },
+      scrollTop: 0, clientHeight: 200, offsetTop: 0, offsetHeight: 60, scrollCalls: [],
+      getBoundingClientRect() { return {top: this.offsetTop, bottom: this.offsetTop + this.offsetHeight, height: this.offsetHeight}; },
+      scrollTo(options) { this.scrollCalls.push(options); this.scrollTop = typeof options === 'object' ? options.top : arguments[1]; },
       currentTime: 0, muted: true, buffered: {length: 0}, plays: 0, pauses: 0,
       play() { this.plays++; return this.playPromise || (this.playDenied ? Promise.reject(new Error('autoplay')) : Promise.resolve()); },
       pause() { this.pauses++; }, load() {},
@@ -63,7 +77,7 @@ function viewer({ disconnected = false, mse = false, mseSupported = true, autoAp
       this.buffer = buffer; return buffer;
     }
   }
-  vm.runInNewContext(source, { document, window: { addEventListener: (name, fn) => handlers.set(name, fn), ...(mse ? {MediaSource: FakeMediaSource} : {}) },
+  vm.runInNewContext(source, { document, window: { addEventListener: (name, fn) => handlers.set(name, fn), matchMedia: () => ({matches: reduceMotion}), ...(queuedRAF ? {requestAnimationFrame: fn => frames.push(fn)} : {}), ...(mse ? {MediaSource: FakeMediaSource} : {}) },
     navigator: { onLine: true }, localStorage: local, sessionStorage: local, AbortController, TextDecoder, Blob, Uint8Array,
     Date: class extends Date { static now() { return now; } },
     URL: { createObjectURL: () => {
@@ -76,6 +90,7 @@ function viewer({ disconnected = false, mse = false, mseSupported = true, autoAp
     fetch: (path, options) => { const result = deferred(); requests.push({ path, options, ...result }); return result.promise; }
   });
   return { nodes, requests, storage, modes, document, handlers, mediaSources, appends, mediaConstruction,
+    flushFrames() { while (frames.length) frames.shift()(); },
     async openMedia() { const item = mediaSources.at(-1); assert.ok(item); item.readyState = 'open'; item.fire('sourceopen'); await flush(); },
     interval() { intervals.forEach(fn => fn()); }, get created() { return created; },
     live: (extra = {}) => ({ captureState: 'live', frameUpdatedAt: now / 1000, width: 960, height: 540, lyricUpdatedAt: now / 1000, lyricLines: ['Original demo text'], lyricState: 'ready', source: 'demo', ...extra }),
@@ -495,6 +510,95 @@ test('unchanged lyric windows retain DOM nodes across heartbeat and position upd
   assert.notEqual(v.nodes.get('musicLines').children[2], beforeTrackChange);
 });
 
+test('lyrics auto-follow only explicit current lines and user input pauses until resumed', async () => {
+  for (const [event, detail] of [['wheel', {}], ['pointerdown', {}], ['touchstart', {}], ['keydown', {key: 'ArrowDown'}]]) {
+    const v = viewer(), original = music({source: 'tesla-ble', lines: ['One', 'Two', 'Three', 'Four'], activeLineIndex: 1});
+    v.requests[0].resolve(response(200, teslaState({music: original}))); await flush();
+    const viewport = v.nodes.get('lyricViewport'), follow = v.nodes.get('lyricFollow');
+    assert.ok(viewport.scrollCalls.length > 0, `initial follow: ${event}`);
+    assert.equal(follow.hidden, true);
+    viewport.fire(event, detail);
+    assert.equal(follow.hidden, false, event);
+    const count = viewport.scrollCalls.length, oldNodes = [...v.nodes.get('musicLines').children];
+    v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState({music: {...original, activeLineIndex: 2}}))); await flush();
+    assert.equal(viewport.scrollCalls.length, count, `manual scroll respected: ${event}`);
+    oldNodes.forEach((node, index) => assert.equal(v.nodes.get('musicLines').children[index], node));
+    follow.fire('click');
+    assert.equal(follow.hidden, true);
+    assert.ok(viewport.scrollCalls.length > count, `resume: ${event}`);
+  }
+});
+
+test('invalid active index never scrolls and reduced-motion follow is not smooth', async () => {
+  const v = viewer({reduceMotion: true});
+  const original = music({source: 'tesla-ble', lines: ['One', 'Two'], activeLineIndex: null});
+  v.requests[0].resolve(response(200, teslaState({music: original}))); await flush();
+  const viewport = v.nodes.get('lyricViewport');
+  assert.equal(viewport.scrollCalls.length, 0);
+  v.handlers.get('resize')();
+  assert.equal(viewport.scrollCalls.length, 0, 'resize does not invent a current line');
+  v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState({music: {...original, activeLineIndex: 1}}))); await flush();
+  assert.ok(viewport.scrollCalls.length > 0);
+  assert.notEqual(viewport.scrollCalls.at(-1).behavior, 'smooth');
+});
+
+test('manual gesture cancels queued lyric layout before it can move the viewport', async () => {
+  const v = viewer({queuedRAF: true});
+  v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble', lines: ['One', 'Two'], activeLineIndex: 1})}))); await flush();
+  const viewport = v.nodes.get('lyricViewport');
+  viewport.fire('wheel');
+  viewport.scrollTop = 123;
+  const count = viewport.scrollCalls.length;
+  v.flushFrames();
+  assert.equal(viewport.scrollTop, 123);
+  assert.equal(viewport.scrollCalls.length, count);
+  assert.equal(v.nodes.get('lyricFollow').hidden, false);
+});
+
+test('temporary missing current line preserves manual viewport and requires explicit resume', async () => {
+  const v = viewer(), original = music({source: 'tesla-ble', lines: ['One', 'Two'], activeLineIndex: 0});
+  v.requests[0].resolve(response(200, teslaState({music: original}))); await flush();
+  const viewport = v.nodes.get('lyricViewport'), follow = v.nodes.get('lyricFollow');
+  viewport.fire('wheel'); viewport.scrollTop = 123;
+  const count = viewport.scrollCalls.length;
+  v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState({music: {...original, activeLineIndex: null}}))); await flush();
+  assert.equal(viewport.scrollTop, 123);
+  assert.equal(viewport.scrollCalls.length, count);
+  assert.equal(follow.hidden, true);
+  v.tick(1000); v.requests.at(-1).resolve(response(200, teslaState({music: {...original, activeLineIndex: 1}}))); await flush();
+  assert.equal(viewport.scrollTop, 123);
+  assert.equal(viewport.scrollCalls.length, count);
+  assert.equal(follow.hidden, false);
+  follow.fire('click');
+  assert.ok(viewport.scrollCalls.length > count);
+  assert.equal(follow.hidden, true);
+});
+
+test('entering lyrics-only mode positions an unchanged valid current line', async () => {
+  const v = viewer({queuedRAF: true}), original = music({lines: ['One', 'Two'], activeLineIndex: 1});
+  v.requests[0].resolve(response(200, v.live({source: 'visible-screen', music: original}))); await flush();
+  v.flushFrames();
+  const viewport = v.nodes.get('lyricViewport');
+  assert.equal(viewport.scrollCalls.length, 0);
+  v.tick(1000); v.requests.at(-1).resolve(response(200, microphoneState({music: original}))); await flush();
+  v.flushFrames();
+  assert.ok(viewport.scrollCalls.length > 0);
+});
+
+test('offline, stale and hidden states clear lyric follow state', async () => {
+  for (const action of ['offline', 'stale', 'hidden']) {
+    const v = viewer();
+    v.requests[0].resolve(response(200, teslaState({music: music({source: 'tesla-ble', activeLineIndex: 0})}))); await flush();
+    v.nodes.get('lyricViewport').fire('wheel');
+    assert.equal(v.nodes.get('lyricFollow').hidden, false);
+    if (action === 'offline') v.handlers.get('offline')();
+    else if (action === 'stale') { v.advance(4001); v.interval(); }
+    else { v.document.hidden = true; v.handlers.get('visibilitychange')(); }
+    assert.equal(v.nodes.get('musicLines').children.length, 0, action);
+    assert.equal(v.nodes.get('lyricFollow').hidden, true, action);
+  }
+});
+
 test('lyric player clears highlighted content on missing position, stale, stopped and offline states', async () => {
   for (const action of ['position', 'stale', 'stopped', 'offline']) {
     const v = viewer();
@@ -513,16 +617,18 @@ test('lyric player clears highlighted content on missing position, stale, stoppe
   }
 });
 
-test('lyric layout provides accessible labels, responsive columns and reduced-motion support', async () => {
-  const css = readFileSync(new URL('../ios/StandaloneWeb/direct.css', import.meta.url), 'utf8');
+test('lyric layout provides an accessible scroll region and reduced-motion support', () => {
   assert.match(html, /id="musicLines"[^>]*aria-label="歌词片段，当前句已标记"/);
   assert.match(html, /id="lyricsEmpty"[^>]*aria-label="歌词接收状态"/);
-  assert.match(css, /@media\(max-width:1100px\)/);
-  assert.match(css, /@media\(max-width:600px\).*grid-template-columns:1fr/);
-  assert.match(css, /prefers-reduced-motion:reduce/);
-  assert.match(css, /\.music-heading h2\{[^}]*-webkit-line-clamp:3/);
-  assert.match(css, /\.lyric-line:not\(\.is-current\)\{[^}]*-webkit-line-clamp:2/);
-  assert.match(css, /@media\(max-height:650px\) and \(min-width:601px\)/);
+  const viewport = html.match(/<[^>]*id="lyricViewport"[^>]*>[\s\S]*?id="musicLines"/);
+  assert.ok(viewport, 'viewport wraps the existing lyric list');
+  assert.match(viewport[0], /tabindex="0"/);
+  assert.match(viewport[0], /role="region"/);
+  assert.match(viewport[0], /aria-label="滚动歌词"/);
+  assert.match(html, /<button\b(?=[^>]*id="lyricFollow")(?=[^>]*\bhidden\b)[^>]*>\s*回到当前句\s*<\/button>/);
+  assert.match(css, /\.lyrics-only\s+#lyricViewport\s*\{/);
+  assert.match(css, /\.lyrics-only\s+#musicLines\s*\{[^}]*max-height\s*:\s*none/);
+  assert.doesNotMatch(css, /\.lyric-line\.is-current\s*\{[^}]*line-clamp/);
   assert.doesNotMatch(source, /scrollIntoView|\.focus\(/);
 });
 

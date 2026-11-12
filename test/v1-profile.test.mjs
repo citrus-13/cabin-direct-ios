@@ -129,7 +129,7 @@ test('V1 shared native contracts execute without iOS runtime or network access',
   assert.equal(build.status, 0, build.stderr || build.error?.message);
   const run = spawnSync(executable, [], { encoding: 'utf8', timeout: 15_000 });
   assert.equal(run.status, 0, run.stderr || run.stdout);
-  assert.match(run.stdout, /Shared native macOS acceptance: 22 cases, 0 failures/);
+  assert.match(run.stdout, /Shared native macOS acceptance: 23 cases, 0 failures/);
 });
 
 test('idle address preview is passive, current and explicitly separated from listening and pairing', () => {

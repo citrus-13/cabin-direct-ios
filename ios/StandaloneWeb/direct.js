@@ -7,6 +7,7 @@
   let objectURL = null, pollTimer = null, lastLiveAt = 0, snapshotBusy = null, generation = 0, streamWatchdog = null;
   let enabled = true, epoch = 0, pollBusy = null, loggingOut = false;
   let musicFreshness = null, lyricsOnly = false, lyricIdentity = null;
+  let lyricTrack = null, lyricActive = -1, lyricFollowing = true, lyricLayoutVersion = 0;
   let media = null, failedMedia = '', mediaRetryAt = Infinity, mediaRetryCount = 0, soundConsent = false;
   const mediaRequests = new Set();
   const pending = new Set();
@@ -24,9 +25,52 @@
   function clearMusic() {
     musicFreshness = null; $('musicPanel').hidden = true;
     lyricIdentity = null; $('lyricsEmpty').hidden = !lyricsOnly;
+    lyricTrack = null; lyricActive = -1; lyricFollowing = true; lyricLayoutVersion++;
+    $('lyricFollow').hidden = true; $('lyricViewport').scrollTop = 0;
     for (const id of ['musicTitle', 'musicArtist', 'musicSource', 'musicPosition', 'musicNote', 'musicMessage']) $(id).textContent = '';
     $('musicLines').replaceChildren();
     $('lyricSync').textContent = '等待歌词';
+  }
+  function currentLyric() {
+    return Array.from($('musicLines').children).find(node => node.getAttribute('aria-current') === 'true');
+  }
+  function followLyric(smooth = true) {
+    if (!lyricsOnly || !lyricFollowing || !musicFreshness || !musicIsFresh(musicFreshness)) return;
+    const viewport = $('lyricViewport'), node = currentLyric();
+    if (!node || !viewport.clientHeight || !node.getBoundingClientRect || !viewport.getBoundingClientRect) return;
+    const rect = node.getBoundingClientRect(), bounds = viewport.getBoundingClientRect();
+    // Scroll only this bounded region; never move browser focus or the outer page.
+    const target = Math.max(0, Math.min(viewport.scrollHeight - viewport.clientHeight,
+      viewport.scrollTop + rect.top - bounds.top - Math.max(20, (viewport.clientHeight - rect.height) * .38)));
+    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (typeof viewport.scrollTo === 'function') viewport.scrollTo({top: target, behavior: smooth && !reduced ? 'smooth' : 'auto'});
+    else viewport.scrollTop = target;
+  }
+  function layoutLyrics({changedTrack, anchor} = {}) {
+    const version = ++lyricLayoutVersion;
+    const apply = () => {
+      if (version !== lyricLayoutVersion || !lyricsOnly || !musicFreshness || !musicIsFresh(musicFreshness)) return;
+      const viewport = $('lyricViewport');
+      if (changedTrack) viewport.scrollTop = 0;
+      else if (anchor) {
+        const matches = Array.from($('musicLines').children).filter(node => node.textContent === anchor.text);
+        // Text is a visual anchor only, never evidence of which line is current.
+        // Ambiguous repeated lines fall back without guessing an anchor.
+        if (matches.length === 1 && matches[0].getBoundingClientRect) {
+          viewport.scrollTop += matches[0].getBoundingClientRect().top - anchor.top;
+        }
+      }
+      followLyric(!changedTrack);
+    };
+    if (window.requestAnimationFrame) window.requestAnimationFrame(apply); else apply();
+  }
+  function pauseLyricFollow() {
+    if (!lyricsOnly || !musicFreshness || !currentLyric()) return;
+    lyricLayoutVersion++;
+    lyricFollowing = false; $('lyricFollow').hidden = false;
+    // Cancel any in-flight smooth scroll before the user's gesture takes over.
+    const viewport = $('lyricViewport');
+    if (typeof viewport.scrollTo === 'function') viewport.scrollTo({top: viewport.scrollTop, behavior: 'auto'});
   }
   function musicIsFresh(music) {
     const now = Date.now() / 1000;
@@ -35,7 +79,7 @@
     return !['matched', 'loading', 'lyrics', 'no-lyrics'].includes(music.status) ||
       (recent(music.matchedAt) && now - music.matchedAt <= (music.source === 'tesla-ble' ? 6 : music.source === 'manual' ? 600 : 30));
   }
-  function displayMusic(state) {
+  function displayMusic(state, modeChanged = false) {
     const music = state.music;
     if (!music || !['shazam', 'manual', 'tesla-ble'].includes(music.source) ||
         (state.source === 'tesla-ble-lyrics' && music.source !== 'tesla-ble') ||
@@ -63,7 +107,16 @@
       music.activeLineIndex < rawLines.length && music.activeLineIndex < 24 &&
       typeof rawLines[music.activeLineIndex] === 'string' && rawLines[music.activeLineIndex].trim() !== '' ? music.activeLineIndex : -1;
     const lines = rawLines.slice(0, 24).map((line, index) => ({line, index})).filter(item => typeof item.line === 'string');
-    const identity = JSON.stringify([music.source, text(music.title), text(music.artist), lines, active]);
+    const track = JSON.stringify([music.source, text(music.title), text(music.artist)]);
+    const changedTrack = track !== lyricTrack;
+    const identity = JSON.stringify([track, lines]);
+    const changedLines = identity !== lyricIdentity, changedActive = active !== lyricActive;
+    const viewport = $('lyricViewport');
+    const previousNodes = Array.from($('musicLines').children);
+    const previousAnchor = lyricFollowing ? currentLyric() : previousNodes.find(node =>
+      node.getBoundingClientRect && viewport.getBoundingClientRect && node.getBoundingClientRect().bottom > viewport.getBoundingClientRect().top);
+    const anchor = !changedTrack && previousAnchor?.getBoundingClientRect ?
+      {text: previousAnchor.textContent, top: previousAnchor.getBoundingClientRect().top} : null;
     if (identity !== lyricIdentity) {
       $('musicLines').replaceChildren(...lines.map(({line, index}) => {
         const node = document.createElement('p'); node.textContent = text(line);
@@ -72,7 +125,18 @@
         return node;
       }));
       lyricIdentity = identity;
+    } else if (changedActive) {
+      Array.from($('musicLines').children).forEach((node, index) => {
+        const isCurrent = lines[index].index === active;
+        node.className = isCurrent ? 'lyric-line is-current' : 'lyric-line';
+        if (isCurrent) node.setAttribute('aria-current', 'true'); else node.removeAttribute('aria-current');
+      });
     }
+    lyricTrack = track; lyricActive = active;
+    if (changedTrack) lyricFollowing = true;
+    $('lyricFollow').hidden = lyricFollowing || active < 0;
+    if (active < 0) lyricLayoutVersion++;
+    else if (changedTrack || changedLines || changedActive || modeChanged) layoutLyrics({changedTrack, anchor: changedLines ? anchor : null});
     $('lyricSync').textContent = active >= 0 ? '当前句 · 估算位置' : lines.length ? '尚无当前句位置' : '等待歌词';
     $('musicNote').textContent = music.status === 'no-lyrics' ? 'LRCLIB 暂无匹配歌词。' :
       music.status === 'loading' ? '正在获取 LRCLIB 歌词。' : music.status === 'lyrics' ?
@@ -390,7 +454,8 @@
       showPaired(); failures = 0;
       const teslaLyrics = state.source === 'tesla-ble-lyrics';
       const nextLyricsOnly = state.source === 'microphone-lyrics' || teslaLyrics;
-      if (nextLyricsOnly !== lyricsOnly) {
+      const modeChanged = nextLyricsOnly !== lyricsOnly;
+      if (modeChanged) {
         clearImage(); lastLiveAt = 0; snapshotMode = false;
       }
       lyricsOnly = nextLyricsOnly;
@@ -405,7 +470,7 @@
       const age = Date.now() / 1000 - Number(state.frameUpdatedAt);
       const live = ['live', 'broadcasting', 'running', 'capturing'].includes(state.captureState) &&
         ((age >= -2 && age <= 4 && state.width > 0) || validMedia(state.media));
-      displayMusic(state);
+      displayMusic(state, modeChanged);
       if (lyricsOnly) {
         clearImage(); lastLiveAt = 0;
         $('captureNote').textContent = teslaLyrics ? '通过蓝牙读取 Tesla 曲目与播放进度；不共享屏幕，仅在手机前台运行。' :
@@ -437,6 +502,14 @@
   function disconnected() { if (!enabled) return; clearImage('连接已断开', '旧画面与文字已隐藏。确认手机与接收页面处于同一可信热点或 Wi-Fi，且来源仍运行。'); clearMusic(); status('连接中断 · 正在重试'); }
   function schedule(ms) { clearTimeout(pollTimer); if (enabled) pollTimer = setTimeout(poll, ms); }
   $('disconnect').addEventListener('click', () => { void disconnect(); });
+  for (const type of ['wheel', 'pointerdown', 'touchstart']) $('lyricViewport').addEventListener(type, pauseLyricFollow, {passive: true});
+  $('lyricViewport').addEventListener('keydown', event => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) pauseLyricFollow();
+  });
+  $('lyricFollow').addEventListener('click', () => {
+    lyricFollowing = true; $('lyricFollow').hidden = true; followLyric();
+  });
+  window.addEventListener('resize', () => { if (lyricFollowing) layoutLyrics(); });
   $('pairForm').addEventListener('submit', async event => {
     event.preventDefault(); if (loggingOut || $('pairButton').disabled || !$('pairConsent').checked || !/^[0-9]{6}$/.test($('pairCode').value)) return;
     soundConsent = false; failedMedia = ''; mediaRetryCount = 0; mediaRetryAt = Infinity;

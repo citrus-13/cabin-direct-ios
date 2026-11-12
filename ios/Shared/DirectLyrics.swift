@@ -48,6 +48,12 @@ struct DirectLyricTimeline {
     }
 
     func visible(at position: Double) -> [String] { presentation(at: position).lines }
+
+    func teslaPresentation(at position: Double) -> (lines: [String], activeLineIndex: Int?) {
+        guard position.isFinite, position >= 0, let index = lines.lastIndex(where: { $0.time <= position }) else { return ([], nil) }
+        let start = max(0, index - 4)
+        return (Array(lines[start...min(lines.count - 1, index + 6)].map(\.text)), index - start)
+    }
 }
 
 enum DirectLyricsRetry {
